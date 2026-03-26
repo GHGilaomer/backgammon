@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Backgammon</title>
+
+  <!-- PWA: manifest + home screen icon -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#c9983a">
+
+  <!-- iOS-specific PWA tags (Safari doesn't fully read manifest.json) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Backgammon">
+  <link rel="apple-touch-icon" href="icon.svg">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -16,11 +26,19 @@
     }
     canvas {
       display: none;
-      /* Scale down to fit any screen width while keeping aspect ratio */
-      max-width: 100vw;
-      width: 920px;        /* intrinsic width — matches CW in JS */
+      /*
+       * Scale to fit whichever dimension is the bottleneck.
+       * 920/578 ≈ 1.591 is the board aspect ratio.
+       * min() picks the smallest of:
+       *   - 920px   (natural desktop size, never upscale)
+       *   - 100vw   (fit viewport width)
+       *   - calc(100vh * 920/578)  (fit viewport height, keeping ratio)
+       * height: auto then follows from the computed width.
+       */
+      width: min(920px, 100vw, calc(100vh * 920 / 578));
       height: auto;
-      touch-action: none;  /* prevent browser scroll/zoom while tapping the board */
+      aspect-ratio: 920 / 578;
+      touch-action: none;
     }
     #subtitle {
       color: #8a7a5a;
@@ -29,6 +47,9 @@
       margin-top: 10px;
       letter-spacing: 3px;
       text-transform: uppercase;
+    }
+    @media (max-width: 1024px) {
+      #subtitle { display: none; }
     }
     /* ── Portrait-mode warning ── */
     #rotate-msg {
@@ -2287,6 +2308,13 @@ _rollBtn && _rollBtn.addEventListener('click', () => {
 
 initBoard();
 // loop() is started by the setup form submit handler
+
+// ── PWA: register service worker for offline play ─────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
