@@ -1,0 +1,2292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Backgammon</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d1117;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    canvas {
+      display: none;
+      /* Scale down to fit any screen width while keeping aspect ratio */
+      max-width: 100vw;
+      width: 920px;        /* intrinsic width — matches CW in JS */
+      height: auto;
+      touch-action: none;  /* prevent browser scroll/zoom while tapping the board */
+    }
+    #subtitle {
+      color: #8a7a5a;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      margin-top: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    /* ── Portrait-mode warning ── */
+    #rotate-msg {
+      display: none;
+      position: fixed; inset: 0; z-index: 200;
+      background: #0d1117;
+      flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 18px;
+      color: #e8c060;
+      font-family: 'Courier New', monospace;
+      text-align: center;
+      padding: 32px;
+    }
+    #rotate-msg .icon { font-size: 56px; }
+    #rotate-msg p { font-size: 16px; letter-spacing: 2px; line-height: 1.6; color: #b8a070; }
+    @media (orientation: portrait) and (max-width: 768px) {
+      #rotate-msg { display: flex; }
+      /* Hide everything else while in portrait on a small screen */
+      #setup-overlay, canvas, #subtitle { visibility: hidden; }
+    }
+    #setup-overlay {
+      position: fixed; top:0; left:0; right:0; bottom:0;
+      background: rgba(5,4,2,0.96);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100; font-family: 'Courier New', monospace;
+      overflow-y: auto; /* scrollable if mobile keyboard pushes content */
+      padding: 16px;
+    }
+    #setup-box {
+      background: #0e0a04; border: 2px solid #c9983a;
+      border-radius: 14px; padding: 32px 44px;
+      width: min(440px, 100%); /* shrinks to fit narrow phones */
+      color: #f0ddb0;
+    }
+    #setup-box h2 {
+      text-align: center; color: #e8c060; font-size: 28px;
+      letter-spacing: 6px; margin-bottom: 6px;
+    }
+    #setup-box p {
+      text-align: center; font-size: 13px; color: #b8a070;
+      letter-spacing: 3px; margin-bottom: 24px;
+    }
+    .setup-row {
+      margin-bottom: 18px; border: 1px solid rgba(201,152,58,0.5);
+      border-radius: 8px; padding: 13px 16px;
+    }
+    .setup-row label {
+      display: block; font-size: 12px; letter-spacing: 2px;
+      margin-bottom: 10px; text-transform: uppercase; font-weight: bold;
+    }
+    .wlabel { color: #e0cc90; }
+    .blabel { color: #a8a8e0; }
+    .setup-row input[type=text], .setup-row select {
+      width: 100%; padding: 8px 12px; margin-bottom: 8px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(201,152,58,0.5); border-radius: 5px;
+      color: #f8ecc0; font-family: 'Courier New', monospace;
+      font-size: 16px; /* 16px minimum prevents iOS from auto-zooming on focus */
+      outline: none; box-sizing: border-box;
+    }
+    .setup-row select option { background: #1a1208; }
+    .setup-row input:focus, .setup-row select:focus { border-color: #e0b84a; box-shadow: 0 0 4px rgba(224,184,74,0.3); }
+    #start-btn {
+      display: block; width: 100%; padding: 16px; margin-top: 8px;
+      background: linear-gradient(135deg, #7a4a10, #c9983a);
+      border: none; border-radius: 8px; color: #fff8e7;
+      font-family: 'Courier New', monospace; font-size: 16px;
+      font-weight: bold; letter-spacing: 4px; cursor: pointer;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+      min-height: 52px; /* comfortable tap target on mobile */
+    }
+    #start-btn:hover { background: linear-gradient(135deg, #9a5e18, #dba84a); }
+    #start-btn:active { background: linear-gradient(135deg, #9a5e18, #dba84a); transform: scale(0.98); }
+    /* ── On-screen Roll button (shown only on touch devices) ── */
+    #roll-btn {
+      display: none; /* shown/hidden by updateRollButton() */
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 18px 48px;
+      background: linear-gradient(135deg, #7a4a10, #c9983a);
+      border: 2px solid #e8c060;
+      border-radius: 14px;
+      color: #fff8e7;
+      font-family: 'Courier New', monospace;
+      font-size: 20px;
+      font-weight: bold;
+      letter-spacing: 3px;
+      cursor: pointer;
+      z-index: 50;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+      touch-action: manipulation; /* instant tap, no 300ms delay */
+      -webkit-tap-highlight-color: transparent;
+      white-space: nowrap;
+    }
+    #roll-btn:active {
+      background: linear-gradient(135deg, #9a5e18, #dba84a);
+      transform: translateX(-50%) scale(0.96);
+    }
+  </style>
+</head>
+<body>
+<div id="setup-overlay">
+  <div id="setup-box">
+    <h2>BACKGAMMON</h2>
+    <p>ENTER PLAYER NAMES TO BEGIN</p>
+    <div class="setup-row">
+      <label class="wlabel">⬜ White Player</label>
+      <input type="text" id="white-name" placeholder="Name (e.g. Omer)" maxlength="14"
+             autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
+      <select id="white-country"><option value="">— Country (optional) —</option></select>
+    </div>
+    <div class="setup-row">
+      <label class="blabel">⬛ Black Player</label>
+      <input type="text" id="black-name" placeholder="Name (e.g. Alex)" maxlength="14"
+             autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false">
+      <select id="black-country"><option value="">— Country (optional) —</option></select>
+    </div>
+    <button id="start-btn">▶  START GAME</button>
+  </div>
+</div>
+<canvas id="c"></canvas>
+<div id="subtitle">White vs Black</div>
+<button id="roll-btn">🎲  ROLL DICE</button>
+<div id="rotate-msg">
+  <div class="icon">📱↻</div>
+  <p>BACKGAMMON<br>Please rotate your device<br>to landscape mode</p>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  BACKGAMMON — Multi-floor stacking + 3D board
+// ════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// ── Canvas & board dimensions ────────────────────────────────
+const CW = 920, CH = 578;
+canvas.width  = CW;
+canvas.height = CH;
+
+const BX = 5, BY = 5, BW = 890, BH = 550;
+const BORDER = 18;
+
+const IX = BX + BORDER;
+const IY = BY + BORDER;
+const IW = BW - BORDER * 2;
+const IH = BH - BORDER * 2;
+
+const BEAR_W = 70;
+const PLAY_W = IW - BEAR_W;
+const BAR_W  = 40;
+const HALF_W = (PLAY_W - BAR_W) / 2;
+const PT_W   = HALF_W / 6;
+const PT_H   = IH * 0.42;
+
+const BAR_X  = IX + HALF_W;
+const BEAR_X = IX + PLAY_W;
+const BOT_BASE = IY + IH;
+const TOP_BASE = IY;
+
+const EXTRUDE       = 14;
+const MAX_PER_FLOOR = 6;
+const F2_SCALE      = 0.80; // kept for compatibility
+
+// ── Colour palette ───────────────────────────────────────────
+const C = {
+  wood:      '#6b3a1f', woodDark:  '#3d1f08', woodLight: '#8b5a2b',
+  felt:      '#1c4d2e', feltShade: '#164024',
+  ptGold:    '#c9983a', ptRed:     '#8b1c2a',
+  ptGoldHi:  '#e0b84a', ptRedHi:   '#a52535',
+  bar:       '#4a2208', barLine:   '#6b3a1f',
+  bearBg:    '#3a2010', bearLine:  '#6b3a1f',
+  label:     '#f0ddb0', labelDim:  '#9a8860',
+  divider:   'rgba(0,0,0,0.4)',
+  medallion: 'rgba(255,220,100,0.07)',
+  wBase:  '#f0ddb0', wEdge:  '#b89a60', wInner: '#fffaee',
+  bBase:  '#1e2030', bEdge:  '#0a0c14', bInner: '#3a3d55',
+};
+
+// ── Checker geometry ─────────────────────────────────────────
+const CHK_R   = 20;
+const CHK_GAP = 41;
+
+// Feature 5: checkerCy uses idx = i % MAX_PER_FLOOR so each floor stacks from base
+function checkerCy(n, i) {
+  const idx = i % MAX_PER_FLOOR;
+  if (n <= 12) return BOT_BASE - CHK_R - 2 - idx * CHK_GAP;
+  else         return TOP_BASE + CHK_R + 2 + idx * CHK_GAP;
+}
+
+// Feature 5: x-offset for multi-floor stacking
+function checkerXOff(n, i) {
+  const floor = Math.floor(i / MAX_PER_FLOOR);
+  if (floor === 0) return 0;
+  const maxOff = PT_W / 2 - CHK_R - 1;
+  const off_val = Math.min(floor * 8, maxOff);
+  return n <= 12 ? off_val : -off_val;
+}
+
+// ── Country list & player setup ───────────────────────────────
+const COUNTRY_LIST = [
+  {n:'Argentina',f:'🇦🇷',c:'AR'},{n:'Armenia',f:'🇦🇲',c:'AM'},{n:'Australia',f:'🇦🇺',c:'AU'},{n:'Austria',f:'🇦🇹',c:'AT'},
+  {n:'Azerbaijan',f:'🇦🇿',c:'AZ'},{n:'Belgium',f:'🇧🇪',c:'BE'},{n:'Brazil',f:'🇧🇷',c:'BR'},{n:'Canada',f:'🇨🇦',c:'CA'},
+  {n:'China',f:'🇨🇳',c:'CN'},{n:'Czech Republic',f:'🇨🇿',c:'CZ'},{n:'Denmark',f:'🇩🇰',c:'DK'},{n:'Egypt',f:'🇪🇬',c:'EG'},
+  {n:'Finland',f:'🇫🇮',c:'FI'},{n:'France',f:'🇫🇷',c:'FR'},{n:'Georgia',f:'🇬🇪',c:'GE'},{n:'Germany',f:'🇩🇪',c:'DE'},
+  {n:'Greece',f:'🇬🇷',c:'GR'},{n:'Hungary',f:'🇭🇺',c:'HU'},{n:'India',f:'🇮🇳',c:'IN'},{n:'Iran',f:'🇮🇷',c:'IR'},
+  {n:'Iraq',f:'🇮🇶',c:'IQ'},{n:'Israel',f:'🇮🇱',c:'IL'},{n:'Italy',f:'🇮🇹',c:'IT'},{n:'Japan',f:'🇯🇵',c:'JP'},
+  {n:'Mexico',f:'🇲🇽',c:'MX'},{n:'Morocco',f:'🇲🇦',c:'MA'},{n:'Netherlands',f:'🇳🇱',c:'NL'},{n:'Norway',f:'🇳🇴',c:'NO'},
+  {n:'Poland',f:'🇵🇱',c:'PL'},{n:'Portugal',f:'🇵🇹',c:'PT'},{n:'Romania',f:'🇷🇴',c:'RO'},{n:'Russia',f:'🇷🇺',c:'RU'},
+  {n:'Saudi Arabia',f:'🇸🇦',c:'SA'},{n:'South Africa',f:'🇿🇦',c:'ZA'},{n:'South Korea',f:'🇰🇷',c:'KR'},
+  {n:'Spain',f:'🇪🇸',c:'ES'},{n:'Sweden',f:'🇸🇪',c:'SE'},{n:'Switzerland',f:'🇨🇭',c:'CH'},{n:'Turkey',f:'🇹🇷',c:'TR'},
+  {n:'UAE',f:'🇦🇪',c:'AE'},{n:'UK',f:'🇬🇧',c:'GB'},{n:'Ukraine',f:'🇺🇦',c:'UA'},{n:'USA',f:'🇺🇸',c:'US'},
+];
+let players = { white:{name:'White',flag:''}, black:{name:'Black',flag:''} };
+
+document.addEventListener('DOMContentLoaded', () => {
+  const opts = COUNTRY_LIST.map(c=>`<option value="${c.c}">${c.f} ${c.n}</option>`).join('');
+  document.getElementById('white-country').innerHTML += opts;
+  document.getElementById('black-country').innerHTML += opts;
+  document.getElementById('start-btn').addEventListener('click', () => {
+    const wn = document.getElementById('white-name').value.trim() || 'White';
+    const bn = document.getElementById('black-name').value.trim() || 'Black';
+    players.white = {name:wn, flag:document.getElementById('white-country').value};
+    players.black = {name:bn, flag:document.getElementById('black-country').value};
+    document.getElementById('setup-overlay').style.display = 'none';
+    document.getElementById('c').style.display = 'block';
+    document.getElementById('subtitle').textContent = wn + ' (White)  vs  ' + bn + ' (Black)';
+    // Pre-warm AudioContext on this user gesture so first dice roll plays instantly
+    if (!_ac) _ac = new (window.AudioContext||window.webkitAudioContext)();
+    if (_ac.state === 'suspended') _ac.resume();
+    loadDiceAudioBuffers(); // pre-load dice audio files as AudioBuffers
+    loop();
+  });
+});
+
+// ── Game state ───────────────────────────────────────────────
+const points = Array.from({ length: 25 }, () => ({ color: null, count: 0 }));
+const bar = { white: 0, black: 0 };
+const off = { white: 0, black: 0 };
+
+const gameScore = { white: 0, black: 0 };
+
+let currentPlayer = 'white';
+let dice = [], movesLeft = [];
+let phase = 'title';
+let selectedPoint = null, highlights = [], combinedHighlights = [], time = 0;
+let statusMsg = '', statusTimer = 0, skipTimer = 0;
+
+// Feature 1: physics-based dice
+let dicePhysics = []; // [{x,y,vx,vy,rotation,angularVel,value,stopped,bounceCount,half}]
+
+// Feature 6: checker animation
+let checkerAnim = null; // {fromPt, toPt, x, y, tx, ty, color, t, duration, done}
+let blotAnim = null;   // {x, y, tx, ty, color, t, duration} — hit checker sliding to bar
+let openingDice = []; // [whiteDie, blackDie] — used during opening roll phase
+
+// Fireworks
+let fireworks = [], fireworkBurstQueue = [];
+let billSafeAnim = null; // {fromX,fromY,safeX,safeY,t,duration,done}
+// Chess clock (frames at ~60fps)
+let turnTimer = -1;
+const TURN_FRAMES = 3900; // 65 seconds at ~60fps (60s + 5s buffer) — clock appears after first 30s
+
+// ── Audio ─────────────────────────────────────────────────────
+let _ac = null;
+function ac() { if (!_ac) _ac = new (window.AudioContext||window.webkitAudioContext)(); return _ac; }
+
+// iOS suspends the AudioContext when the app goes to background (phone call,
+// lock screen, switching apps). Resume it the moment the user comes back.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _ac && _ac.state === 'suspended') _ac.resume();
+});
+// Also resume on any touch — belt-and-suspenders for older iOS Safari
+document.addEventListener('touchstart', () => {
+  if (_ac && _ac.state === 'suspended') _ac.resume();
+}, { passive: true });
+
+// Feature 2: file-based dice roll audio
+// new Audio(f).play() is the only reliable method for local file:// URLs
+const DICE_FILES = ['Dice rolling 1.m4a','Dice rolling 2.m4a','Dice rolling 3.m4a','Dice rolling 4.m4a','Dice rolling 5.m4a'];
+// Two pooled instances per file so overlapping rolls never cut each other off
+let diceAudioPool = null;
+function loadDiceAudioBuffers() { // called on Start — pre-create pool so first roll has no delay
+  if (diceAudioPool) return;
+  diceAudioPool = DICE_FILES.flatMap(f => [new Audio(f), new Audio(f)]);
+  diceAudioPool.forEach(a => { a.volume = 1.0; a.load(); });
+}
+
+function playDiceRollFile() {
+  if (!diceAudioPool) loadDiceAudioBuffers();
+  // Find an instance that is not currently playing (currentTime===0 or ended)
+  const candidates = diceAudioPool.filter(a => a.paused || a.ended || a.currentTime === 0);
+  const pick = candidates.length
+    ? candidates[Math.floor(Math.random() * candidates.length)]
+    : diceAudioPool[Math.floor(Math.random() * diceAudioPool.length)];
+  pick.currentTime = 0;
+  pick.play().catch(() => playDiceRollSynth());
+}
+
+function playDiceRollSynth() {
+  try {
+    const a=ac(), buf=a.createBuffer(1,a.sampleRate*.18,a.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
+    const src=a.createBufferSource(), g=a.createGain();
+    src.buffer=buf; g.gain.setValueAtTime(1.2,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.18);
+    src.connect(g); g.connect(a.destination); src.start();
+  } catch(e){}
+}
+
+function playCheckerPlace() {
+  try {
+    const a=ac(),o=a.createOscillator(),g=a.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(900,a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(350,a.currentTime+.08);
+    g.gain.setValueAtTime(.35,a.currentTime); g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.1);
+    o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime+.1);
+  } catch(e){}
+}
+function playBlotHit() {
+  // Thunder strike: sharp crack → rolling rumble → electric sizzle
+  try {
+    const a = ac(), t = a.currentTime;
+    if (a.state === 'suspended') a.resume();
+
+    // ── Sharp crack (lightning strike transient) ──
+    const crackLen = Math.floor(a.sampleRate * 0.06);
+    const crackBuf = a.createBuffer(1, crackLen, a.sampleRate);
+    const cd = crackBuf.getChannelData(0);
+    for (let i = 0; i < crackLen; i++)
+      cd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / crackLen, 1.5);
+    const crackSrc = a.createBufferSource();
+    crackSrc.buffer = crackBuf;
+    const crackG = a.createGain();
+    crackG.gain.setValueAtTime(3.5, t);
+    crackG.gain.exponentialRampToValueAtTime(0.01, t + 0.06);
+    crackSrc.connect(crackG); crackG.connect(a.destination);
+    crackSrc.start(t);
+
+    // ── Rolling thunder rumble ──
+    const rumbleLen = Math.floor(a.sampleRate * 1.4);
+    const rumbleBuf = a.createBuffer(1, rumbleLen, a.sampleRate);
+    const rd = rumbleBuf.getChannelData(0);
+    for (let i = 0; i < rumbleLen; i++)
+      rd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (a.sampleRate * 0.35));
+    const rumbleSrc = a.createBufferSource();
+    rumbleSrc.buffer = rumbleBuf;
+    const lp = a.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(500, t + 0.03);
+    lp.frequency.exponentialRampToValueAtTime(55, t + 1.0);
+    const rumbleG = a.createGain();
+    rumbleG.gain.setValueAtTime(2.5, t + 0.03);
+    rumbleG.gain.exponentialRampToValueAtTime(0.01, t + 1.4);
+    rumbleSrc.connect(lp); lp.connect(rumbleG); rumbleG.connect(a.destination);
+    rumbleSrc.start(t + 0.03);
+
+    // ── Electric sizzle (high-frequency static) ──
+    const sizzleLen = Math.floor(a.sampleRate * 0.25);
+    const sizzleBuf = a.createBuffer(1, sizzleLen, a.sampleRate);
+    const sd = sizzleBuf.getChannelData(0);
+    for (let i = 0; i < sizzleLen; i++)
+      sd[i] = (Math.random() * 2 - 1) * Math.exp(-i / (a.sampleRate * 0.06));
+    const sizzleSrc = a.createBufferSource();
+    sizzleSrc.buffer = sizzleBuf;
+    const hp = a.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.setValueAtTime(3500, t);
+    const sizzleG = a.createGain();
+    sizzleG.gain.setValueAtTime(1.8, t);
+    sizzleG.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
+    sizzleSrc.connect(hp); hp.connect(sizzleG); sizzleG.connect(a.destination);
+    sizzleSrc.start(t);
+  } catch(e) {}
+}
+function playBearOff() {
+  try {
+    const a=ac();
+    [523,784].forEach((f,i)=>{
+      const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0,a.currentTime+i*.1); g.gain.linearRampToValueAtTime(.38,a.currentTime+i*.1+.02);
+      g.gain.exponentialRampToValueAtTime(.001,a.currentTime+i*.1+.4);
+      o.connect(g); g.connect(a.destination); o.start(a.currentTime+i*.1); o.stop(a.currentTime+i*.1+.4);
+    });
+  } catch(e){}
+}
+function playWin() {
+  try {
+    const a=ac();
+    [523,659,784,1047].forEach((f,i)=>{
+      const o=a.createOscillator(),g=a.createGain(); o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0,a.currentTime+i*.13); g.gain.linearRampToValueAtTime(.45,a.currentTime+i*.13+.02);
+      g.gain.exponentialRampToValueAtTime(.001,a.currentTime+i*.13+.55);
+      o.connect(g); g.connect(a.destination); o.start(a.currentTime+i*.13); o.stop(a.currentTime+i*.13+.55);
+    });
+  } catch(e){}
+}
+
+// Feature 2: disappointment sound
+function playDisappointment() {
+  try {
+    const a = ac();
+    [330, 262, 196].forEach((f, i) => {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, a.currentTime + i*0.18);
+      o.frequency.exponentialRampToValueAtTime(f*0.75, a.currentTime + i*0.18 + 0.35);
+      g.gain.setValueAtTime(0, a.currentTime + i*0.18);
+      g.gain.linearRampToValueAtTime(0.3, a.currentTime + i*0.18 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + i*0.18 + 0.4);
+      o.connect(g); g.connect(a.destination);
+      o.start(a.currentTime + i*0.18); o.stop(a.currentTime + i*0.18 + 0.42);
+    });
+  } catch(e) {}
+}
+
+// Feature 6: drag sounds
+let dragAudioObjs = null;
+function playDragSound() {
+  try {
+    if (!dragAudioObjs) dragAudioObjs = ['drag man 1.m4a','drag man 2.m4a','drag man 3.m4a','drag man 5.m4a','drag man 6.m4a','drag man 7.m4a','drag man 8.m4a'].map(f => new Audio(f));
+    const a = dragAudioObjs[Math.floor(Math.random() * dragAudioObjs.length)];
+    a.currentTime = 0; a.play().catch(() => {});
+  } catch(e) {}
+}
+
+// ── Fireworks ─────────────────────────────────────────────────
+function triggerFireworks() {
+  fireworks = []; fireworkBurstQueue = [];
+  const pos = [
+    [CW*.18,CH*.25],[CW*.5,CH*.18],[CW*.82,CH*.25],
+    [CW*.3, CH*.55],[CW*.7, CH*.55],[CW*.5, CH*.44],
+    [CW*.12,CH*.5 ],[CW*.88,CH*.5 ],
+  ];
+  pos.forEach(([x,y],i) => fireworkBurstQueue.push({x,y,delay:i*9+Math.floor(Math.random()*5)}));
+}
+function spawnFireworkBurst(x, y) {
+  const cols=['#ff4444','#ffaa00','#ffff44','#44ff88','#44aaff','#ff66ff','#ffffff','#ff8822'];
+  for (let i=0; i<30; i++) {
+    const ang=(i/30)*Math.PI*2+(Math.random()-.5)*.4;
+    const spd=2.5+Math.random()*5;
+    const life=65+Math.floor(Math.random()*55);
+    fireworks.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd-.5,life,maxLife:life,
+      color:cols[Math.floor(Math.random()*cols.length)],size:1.8+Math.random()*2.2});
+  }
+}
+function updateFireworks() {
+  for (let i=fireworkBurstQueue.length-1;i>=0;i--){fireworkBurstQueue[i].delay--;if(fireworkBurstQueue[i].delay<=0){const b=fireworkBurstQueue.splice(i,1)[0];spawnFireworkBurst(b.x,b.y);}}
+  for (let i=fireworks.length-1;i>=0;i--){const p=fireworks[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.1;p.vx*=.985;p.life--;if(p.life<=0)fireworks.splice(i,1);}
+}
+function drawFireworks() {
+  for (const p of fireworks){
+    ctx.save();ctx.globalAlpha=p.life/p.maxLife*0.9;ctx.fillStyle=p.color;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();ctx.restore();
+  }
+}
+
+// ── Feature 1: Dice physics ───────────────────────────────────
+const DIE_SZ = 40, DIE_R = 6, PIP_OFF = 12, PIP_R = 3.5;
+
+function initDicePhysics(d1val, d2val, onlyFirst = false) {
+  dicePhysics = [];
+
+  // Pick the side (left or right) with fewer total checkers — both dice land there
+  const leftMinX = IX + DIE_SZ/2 + 2;
+  const leftMaxX = BAR_X - DIE_SZ/2 - 2;
+  const rightMinX = BAR_X + BAR_W + DIE_SZ/2 + 2;
+  const rightMaxX = BEAR_X - DIE_SZ/2 - 2;
+  const minY = IY + DIE_SZ/2 + 2;
+  const maxY = IY + IH - DIE_SZ/2 - 2;
+
+  let leftCount = 0, rightCount = 0;
+  for (let n = 7;  n <= 18; n++) leftCount  += points[n].count;
+  for (let n = 1;  n <= 6;  n++) rightCount += points[n].count;
+  for (let n = 19; n <= 24; n++) rightCount += points[n].count;
+  const useLeft = leftCount <= rightCount;
+  const sideMinX = useLeft ? leftMinX : rightMinX;
+  const sideMaxX = useLeft ? leftMaxX : rightMaxX;
+  const sideLabel = useLeft ? 'left' : 'right';
+
+  const midY = IY + IH / 2;
+
+  const makeDie = (val, startMinY, startMaxY) => {
+    const x = sideMinX + Math.random() * (sideMaxX - sideMinX);
+    const y = startMinY + Math.random() * (startMaxY - startMinY);
+    const speed = 5 + Math.random() * 5;
+    const angle = Math.random() * Math.PI * 2;
+    return {
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      rotation: Math.random() * Math.PI * 2,
+      angularVel: (Math.random() - 0.5) * 0.4,
+      value: val,
+      stopped: false,
+      frames: 0,
+      half: sideLabel,
+      minX: sideMinX, maxX: sideMaxX, minY, maxY
+    };
+  };
+
+  dicePhysics.push(makeDie(d1val, minY, midY - DIE_SZ));
+  if (!onlyFirst) dicePhysics.push(makeDie(d2val, midY + DIE_SZ, maxY));
+}
+
+// Add a second die using same side as the already-rolling/stopped first die
+function addDieToPhysics(val) {
+  if (!dicePhysics.length) return;
+  const ref = dicePhysics[0];
+  const midY = IY + IH / 2;
+  const speed = 5 + Math.random() * 5;
+  const angle = Math.random() * Math.PI * 2;
+  dicePhysics.push({
+    x: ref.minX + Math.random() * (ref.maxX - ref.minX),
+    y: midY + DIE_SZ + Math.random() * (ref.maxY - midY - DIE_SZ),
+    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+    rotation: Math.random() * Math.PI * 2,
+    angularVel: (Math.random() - 0.5) * 0.4,
+    value: val, stopped: false, frames: 0, half: ref.half,
+    minX: ref.minX, maxX: ref.maxX, minY: ref.minY, maxY: ref.maxY
+  });
+}
+
+function updateDicePhysics() {
+  const friction = 0.95;
+  const angFriction = 0.92;
+  let allStopped = true;
+
+  for (const die of dicePhysics) {
+    if (die.stopped) continue;
+    allStopped = false;
+
+    die.frames++;
+    die.x += die.vx;
+    die.y += die.vy;
+    die.rotation += die.angularVel;
+    die.vx *= friction;
+    die.vy *= friction;
+    die.angularVel *= angFriction;
+
+    // Bounce off boundaries
+    if (die.x <= die.minX) { die.x = die.minX; die.vx =  Math.abs(die.vx) * 0.75; }
+    if (die.x >= die.maxX) { die.x = die.maxX; die.vx = -Math.abs(die.vx) * 0.75; }
+    if (die.y <= die.minY) { die.y = die.minY; die.vy =  Math.abs(die.vy) * 0.75; }
+    if (die.y >= die.maxY) { die.y = die.maxY; die.vy = -Math.abs(die.vy) * 0.75; }
+
+    const speed = Math.sqrt(die.vx*die.vx + die.vy*die.vy);
+    if ((speed < 0.45 && die.frames >= 20) || die.frames >= 150) {
+      die.stopped = true;
+      die.vx = 0; die.vy = 0; die.angularVel = 0;
+      die.rotation = Math.round(die.rotation / (Math.PI/2)) * (Math.PI/2);
+
+      // Nudge away from banner (approx x=129-289, y=228-250)
+      const bannerX1 = 129, bannerX2 = 289, bannerY1 = 228, bannerY2 = 250;
+      const hw = DIE_SZ/2 + 4;
+      if (die.x + hw > bannerX1 && die.x - hw < bannerX2 && die.y + hw > bannerY1 && die.y - hw < bannerY2) {
+        die.y = bannerY2 + hw + 2;
+        if (die.y > die.maxY) die.y = die.maxY;
+      }
+
+      // Nudge away from checkers
+      const minClear = DIE_SZ/2 + CHK_R + 3;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        let moved = false;
+        for (let n = 1; n <= 24; n++) {
+          const pt = points[n];
+          if (!pt.count) continue;
+          for (let i = 0; i < pt.count; i++) {
+            const cx = ptCx(n) + checkerXOff(n, i), cy = checkerCy(n, i);
+            const dx = die.x - cx, dy = die.y - cy;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < minClear) {
+              const nx = dist > 0 ? dx/dist : 0, ny = dist > 0 ? dy/dist : 1;
+              die.x = cx + nx * (minClear + 1);
+              die.y = cy + ny * (minClear + 1);
+              die.x = Math.max(die.minX, Math.min(die.maxX, die.x));
+              die.y = Math.max(die.minY, Math.min(die.maxY, die.y));
+              moved = true;
+            }
+          }
+        }
+        // Also avoid bar checkers
+        const bx = BAR_X + BAR_W/2;
+        for (let i = 0; i < bar.white; i++) {
+          const cy = IY+IH*.75-i*CHK_GAP;
+          const dx = die.x-bx, dy = die.y-cy, dist = Math.sqrt(dx*dx+dy*dy);
+          if (dist < minClear) { const nx=dist>0?dx/dist:0,ny=dist>0?dy/dist:1; die.x=bx+nx*(minClear+1); die.y=cy+ny*(minClear+1); die.x=Math.max(die.minX,Math.min(die.maxX,die.x)); die.y=Math.max(die.minY,Math.min(die.maxY,die.y)); moved=true; }
+        }
+        for (let i = 0; i < bar.black; i++) {
+          const cy = IY+IH*.25+i*CHK_GAP;
+          const dx = die.x-bx, dy = die.y-cy, dist = Math.sqrt(dx*dx+dy*dy);
+          if (dist < minClear) { const nx=dist>0?dx/dist:0,ny=dist>0?dy/dist:1; die.x=bx+nx*(minClear+1); die.y=cy+ny*(minClear+1); die.x=Math.max(die.minX,Math.min(die.maxX,die.x)); die.y=Math.max(die.minY,Math.min(die.maxY,die.y)); moved=true; }
+        }
+        if (!moved) break;
+      }
+      // Final fallback: if die still overlaps any checker, snap to the mid-board gap
+      const gapTop = TOP_BASE + PT_H + DIE_SZ/2 + 4;
+      const gapBot = BOT_BASE - PT_H - DIE_SZ/2 - 4;
+      let stillOverlap = false;
+      for (let n = 1; n <= 24; n++) {
+        const pt2 = points[n]; if (!pt2.count) continue;
+        for (let i = 0; i < pt2.count; i++) {
+          const cx2 = ptCx(n)+checkerXOff(n,i), cy2 = checkerCy(n,i);
+          if (Math.sqrt((die.x-cx2)**2+(die.y-cy2)**2) < minClear) { stillOverlap=true; break; }
+        }
+        if (stillOverlap) break;
+      }
+      if (stillOverlap && gapBot > gapTop) {
+        die.y = gapTop + Math.random() * (gapBot - gapTop);
+      }
+    }
+  }
+
+  // Die-vs-die repulsion (prevents two dice from overlapping)
+  if (dicePhysics.length === 2) {
+    const a=dicePhysics[0], b=dicePhysics[1];
+    const dx=b.x-a.x, dy=b.y-a.y, dist=Math.sqrt(dx*dx+dy*dy);
+    const minD=DIE_SZ+4;
+    if (dist<minD && dist>0.001) {
+      const nx=dx/dist, ny=dy/dist, push=(minD-dist)/2+1;
+      if (!a.stopped){a.x-=nx*push;a.y-=ny*push;a.x=Math.max(a.minX,Math.min(a.maxX,a.x));a.y=Math.max(a.minY,Math.min(a.maxY,a.y));}
+      if (!b.stopped){b.x+=nx*push;b.y+=ny*push;b.x=Math.max(b.minX,Math.min(b.maxX,b.x));b.y=Math.max(b.minY,Math.min(b.maxY,b.y));}
+      if (!a.stopped&&!b.stopped){const rv=a.vx*nx+a.vy*ny-b.vx*nx-b.vy*ny;if(rv>0){a.vx-=rv*nx*.65;a.vy-=rv*ny*.65;b.vx+=rv*nx*.65;b.vy+=rv*ny*.65;}}
+      if (a.stopped&&b.stopped){a.x-=nx*push;a.y-=ny*push;a.x=Math.max(a.minX,Math.min(a.maxX,a.x));a.y=Math.max(a.minY,Math.min(a.maxY,a.y));b.x+=nx*push;b.y+=ny*push;b.x=Math.max(b.minX,Math.min(b.maxX,b.x));b.y=Math.max(b.minY,Math.min(b.maxY,b.y));}
+    }
+  }
+
+  return allStopped || dicePhysics.every(d => d.stopped);
+}
+
+// ── Dice drawing ──────────────────────────────────────────────
+const PIPS = {
+  1:[[0,0]], 2:[[-1,-1],[1,1]], 3:[[-1,-1],[0,0],[1,1]],
+  4:[[-1,-1],[1,-1],[-1,1],[1,1]], 5:[[-1,-1],[1,-1],[0,0],[-1,1],[1,1]],
+  6:[[-1,-1],[1,-1],[-1,0],[1,0],[-1,1],[1,1]],
+};
+
+function drawDie(cx, cy, value, used) {
+  const x = cx - DIE_SZ/2, y = cy - DIE_SZ/2;
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=8; ctx.shadowOffsetX=2; ctx.shadowOffsetY=3;
+  const fg = ctx.createLinearGradient(x, y, x+DIE_SZ, y+DIE_SZ);
+  if (used) { fg.addColorStop(0,'#5a5a5a'); fg.addColorStop(1,'#3a3a3a'); }
+  else      { fg.addColorStop(0,'#fdf6e3'); fg.addColorStop(1,'#e8d9b0'); }
+  roundRect(x,y,DIE_SZ,DIE_SZ,DIE_R); ctx.fillStyle=fg; ctx.fill(); ctx.restore();
+  roundRect(x,y,DIE_SZ,DIE_SZ,DIE_R);
+  ctx.strokeStyle=used?'#2a2a2a':'#b09050'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle=used?'#1a1a1a':'#1a0a00';
+  for (const [col,row] of PIPS[value]) {
+    ctx.beginPath(); ctx.arc(cx+col*PIP_OFF, cy+row*PIP_OFF, PIP_R, 0, Math.PI*2); ctx.fill();
+  }
+  if (used) {
+    ctx.strokeStyle='rgba(180,40,40,0.7)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(x+6,y+DIE_SZ-6); ctx.lineTo(x+DIE_SZ-6,y+6); ctx.stroke();
+  }
+}
+
+function drawDieRotated(cx, cy, value, rotation) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=8; ctx.shadowOffsetX=2; ctx.shadowOffsetY=3;
+  const x = -DIE_SZ/2, y = -DIE_SZ/2;
+  const fg = ctx.createLinearGradient(x, y, x+DIE_SZ, y+DIE_SZ);
+  fg.addColorStop(0,'#fdf6e3'); fg.addColorStop(1,'#e8d9b0');
+  roundRect(x,y,DIE_SZ,DIE_SZ,DIE_R); ctx.fillStyle=fg; ctx.fill();
+  ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+  roundRect(x,y,DIE_SZ,DIE_SZ,DIE_R); ctx.strokeStyle='#b09050'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#1a0a00';
+  for (const [col,row] of PIPS[value]) {
+    ctx.beginPath(); ctx.arc(col*PIP_OFF, row*PIP_OFF, PIP_R, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawDicePhysics() {
+  if (dicePhysics.length === 0) return;
+  const isDoubles = dice.length === 4;
+
+  for (let i = 0; i < dicePhysics.length; i++) {
+    const die = dicePhysics[i];
+    if (phase === 'rolling' || phase === 'opening_w_rolling' || phase === 'opening_b_rolling') {
+      // Flicker random face while rolling
+      const flickerVal = Math.ceil(Math.random() * 6);
+      drawDieRotated(die.x, die.y, flickerVal, die.rotation);
+    } else {
+      // Rolled: show final value
+      let used = false;
+      if (isDoubles) {
+        const usedCount = 4 - movesLeft.length;
+        // Each physical die represents 2 of the 4 identical moves
+        // die 0: used once ≥2 moves consumed; die 1: used once all 4 consumed
+        used = (i === 0) ? usedCount >= 2 : usedCount >= 4;
+      } else {
+        // For normal dice, check if this die's value is still in movesLeft
+        const rem = [...movesLeft];
+        const idxR = rem.indexOf(die.value);
+        if (idxR === -1) used = true;
+        else rem.splice(idxR, 1);
+      }
+      drawDie(die.x, die.y, die.value, used);
+
+      // For doubles: show remaining moves count below each die
+      if (isDoubles) {
+        const remainCount = movesLeft.length;
+        const totalCount = dice.length;
+        // Show "×N" indicator
+        ctx.save();
+        ctx.fillStyle = '#ffdd66';
+        ctx.font = 'bold 13px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('×' + remainCount, die.x, die.y + DIE_SZ/2 + 14);
+        ctx.restore();
+      }
+    }
+  }
+}
+
+function rollDice() {
+  if (phase !== 'idle') return;
+  const d1 = Math.ceil(Math.random() * 6);
+  const d2 = Math.ceil(Math.random() * 6);
+  dice      = (d1 === d2) ? [d1, d1, d1, d1] : [d1, d2];
+  movesLeft = [...dice];
+  phase     = 'rolling';
+  initDicePhysics(d1, d2);
+  playDiceRollFile();
+}
+
+function rollOpeningWhite() {
+  if (phase !== 'opening') return;
+  const d = Math.ceil(Math.random() * 6);
+  openingDice = [d, 0];
+  dice = [d]; movesLeft = [d];
+  phase = 'opening_w_rolling';
+  initDicePhysics(d, 0, true); // single die for white, top zone
+  playDiceRollFile();
+}
+
+function rollOpeningBlack() {
+  if (phase !== 'opening_b') return;
+  const d = Math.ceil(Math.random() * 6);
+  openingDice[1] = d;
+  dice = [openingDice[0], d]; movesLeft = [openingDice[0], d];
+  phase = 'opening_b_rolling';
+  addDieToPhysics(d); // add second die, white's stays stopped
+  playDiceRollFile();
+}
+
+function initBoard() {
+  for (let n = 0; n <= 24; n++) points[n] = { color: null, count: 0 };
+  points[24] = { color: 'white', count: 2 };
+  points[13] = { color: 'white', count: 5 };
+  points[8]  = { color: 'white', count: 3 };
+  points[6]  = { color: 'white', count: 5 };
+  points[1]  = { color: 'black', count: 2 };
+  points[12] = { color: 'black', count: 5 };
+  points[17] = { color: 'black', count: 3 };
+  points[19] = { color: 'black', count: 5 };
+  bar.white=0; bar.black=0; off.white=0; off.black=0;
+  currentPlayer='white'; dice=[]; movesLeft=[];
+  selectedPoint=null; highlights=[]; combinedHighlights=[]; statusMsg=''; statusTimer=0; skipTimer=0;
+  dicePhysics=[]; checkerAnim=null; blotAnim=null; openingDice=[];
+  turnTimer=-1; fireworks=[]; fireworkBurstQueue=[]; billSafeAnim=null;
+}
+
+// ── Legal moves ───────────────────────────────────────────────
+function canBearOff(player) {
+  if (bar[player] > 0) return false;
+  const lo = player === 'white' ? 1 : 19;
+  const hi = player === 'white' ? 6 : 24;
+  for (let n = 1; n <= 24; n++)
+    if (points[n].color === player && points[n].count > 0 && (n < lo || n > hi)) return false;
+  return true;
+}
+
+function validDestinations(fromPt) {
+  const cp = currentPlayer, dir = cp === 'white' ? -1 : 1;
+  const dests = new Set();
+  for (const die of movesLeft) {
+    const to = fromPt === 0 ? (cp === 'white' ? 25 - die : die) : fromPt + dir * die;
+    if (to >= 1 && to <= 24) {
+      const pt = points[to];
+      if (!pt.color || pt.color === cp || pt.count === 1) dests.add(to);
+    }
+  }
+  if (fromPt !== 0 && canBearOff(cp)) {
+    const dist = cp === 'white' ? fromPt : 25 - fromPt;
+    for (const die of new Set(movesLeft)) {
+      if (die === dist) {
+        dests.add(25);
+      } else if (die > dist) {
+        let higher = false;
+        if (cp === 'white') { for (let p = fromPt+1; p <= 6;  p++) if (points[p].color==='white'&&points[p].count>0){higher=true;break;} }
+        else                { for (let p = fromPt-1; p >= 19; p--) if (points[p].color==='black'&&points[p].count>0){higher=true;break;} }
+        if (!higher) dests.add(25);
+      }
+    }
+  }
+  return [...dests];
+}
+
+// Feature 3: combined multi-die move highlighting (supports 2,3,4 dice chains)
+function validCombinedDestinations(fromPt) {
+  if (movesLeft.length < 2) return [];
+  if (bar[currentPlayer] >= 2) return [];
+  const cp = currentPlayer, dir = cp === 'white' ? -1 : 1;
+  const singles = new Set(validDestinations(fromPt));
+  const combined = new Set();
+
+  function canBearOffWith(pt, die) {
+    if (!canBearOff(cp) || pt < 1 || pt > 24) return false;
+    const dist = cp === 'white' ? pt : 25 - pt;
+    if (die === dist) return true;
+    if (die > dist) {
+      if (cp === 'white') { for (let p = pt+1; p<=6; p++) if (points[p].color==='white'&&points[p].count>0) return false; }
+      else                { for (let p = pt-1; p>=19; p--) if (points[p].color==='black'&&points[p].count>0) return false; }
+      return true;
+    }
+    return false;
+  }
+
+  // Recursively explore chains of 2+ dice from an intermediate point
+  function explore(pt, remain) {
+    const seen = new Set();
+    for (let i = 0; i < remain.length; i++) {
+      const d = remain[i];
+      if (seen.has(d)) continue; seen.add(d);
+      let to;
+      if (pt === 0) to = cp === 'white' ? 25 - d : d;
+      else to = pt + dir * d;
+      if (to >= 1 && to <= 24) {
+        const tp = points[to];
+        if (tp.color && tp.color !== cp && tp.count > 1) continue;
+        combined.add(to);
+        const rem2 = [...remain]; rem2.splice(i, 1);
+        if (rem2.length > 0) explore(to, rem2);
+      } else if (canBearOffWith(pt, d)) {
+        combined.add(25);
+      }
+    }
+  }
+
+  const seenFirst = new Set();
+  for (let i = 0; i < movesLeft.length; i++) {
+    const d1 = movesLeft[i];
+    if (seenFirst.has(d1)) continue; seenFirst.add(d1);
+    let mid;
+    if (fromPt === 0) mid = cp === 'white' ? 25 - d1 : d1;
+    else mid = fromPt + dir * d1;
+    if (mid < 1 || mid > 24) continue;
+    const midPt = points[mid];
+    if (midPt.color && midPt.color !== cp && midPt.count > 1) continue;
+    const remaining = [...movesLeft]; remaining.splice(i, 1);
+    explore(mid, remaining);
+  }
+  return [...combined].filter(n => !singles.has(n));
+}
+
+function ptLeft(n) {
+  if (n >= 1  && n <= 6)  return IX + HALF_W + BAR_W + (6  - n) * PT_W;
+  if (n >= 7  && n <= 12) return IX +                  (12 - n) * PT_W;
+  if (n >= 13 && n <= 18) return IX +                  (n - 13) * PT_W;
+  if (n >= 19 && n <= 24) return IX + HALF_W + BAR_W + (n - 19) * PT_W;
+}
+function ptCx(n) { return ptLeft(n) + PT_W / 2; }
+
+// Feature 4: extended pointAt that also detects checkers outside triangles
+function pointAt(mx, my) {
+  if (mx >= BAR_X && mx <= BAR_X + BAR_W) return 0;
+  if (mx >= BEAR_X) return 25;
+
+  // Check checkers on board (handles overflow outside triangle)
+  for (let n = 1; n <= 24; n++) {
+    const pt = points[n];
+    if (!pt.count) continue;
+    const baseCx = ptCx(n);
+    for (let i = 0; i < pt.count; i++) {
+      const cx = baseCx + checkerXOff(n, i);
+      const cy = checkerCy(n, i);
+      if (Math.sqrt((mx-cx)**2 + (my-cy)**2) <= CHK_R + 2) return n;
+    }
+  }
+
+  for (let n = 1; n <= 24; n++) {
+    const x = ptLeft(n);
+    if (mx < x || mx >= x + PT_W) continue;
+    if (n <= 12 && my >= BOT_BASE - PT_H && my <= BOT_BASE) return n;
+    if (n >= 13 && my >= TOP_BASE        && my <= TOP_BASE + PT_H) return n;
+  }
+  return -1;
+}
+
+function hasAnyLegalMove() {
+  if (bar[currentPlayer] > 0) return validDestinations(0).length > 0;
+  for (let n = 1; n <= 24; n++)
+    if (points[n].color === currentPlayer && points[n].count > 0 && validDestinations(n).length > 0) return true;
+  return false;
+}
+
+function allBarEntriesBlocked() {
+  if (bar[currentPlayer] === 0) return false;
+  const cp = currentPlayer;
+  // Entry zone: white enters on points 19-24, black on 1-6
+  const lo = cp === 'white' ? 19 : 1;
+  const hi = cp === 'white' ? 24 : 6;
+  for (let p = lo; p <= hi; p++) {
+    const pt = points[p];
+    // Not blocked if empty, own checker, or lone opponent (blot can be hit)
+    if (!pt.color || pt.color === cp || pt.count <= 1) return false;
+  }
+  return true;
+}
+
+function endTurn() {
+  currentPlayer = currentPlayer === 'white' ? 'black' : 'white';
+  dice = []; movesLeft = []; phase = 'idle';
+  selectedPoint = null; highlights = []; combinedHighlights = []; skipTimer = 0;
+  dicePhysics = [];
+  turnTimer = TURN_FRAMES;
+}
+
+// Feature 6: get visual position of top checker at a point
+function topCheckerVisualPos(pt) {
+  if (pt === 0) {
+    const count = bar[currentPlayer];
+    return {
+      x: BAR_X + BAR_W/2,
+      y: currentPlayer === 'white' ? IY+IH*.75-(count-1)*CHK_GAP : IY+IH*.25+(count-1)*CHK_GAP
+    };
+  }
+  if (pt === 25) {
+    const count = off[currentPlayer];
+    const tx = BEAR_X + BEAR_W/2;
+    return { x: tx, y: currentPlayer === 'white' ? IY+IH-7-4-count*17 : IY+7+18+count*17 };
+  }
+  const p = points[pt];
+  const i = p.count - 1;
+  return { x: ptCx(pt) + checkerXOff(pt, i), y: checkerCy(pt, i) };
+}
+
+// Find the full path from fromPt to toPt using available movesLeft dice.
+// Returns array of points [mid1, mid2, ..., toPt] or null.
+function findChainPath(fromPt, toPt) {
+  const cp = currentPlayer, dir = cp === 'white' ? -1 : 1;
+
+  function canBearOffWith(pt, die) {
+    if (!canBearOff(cp) || pt < 1 || pt > 24) return false;
+    const dist = cp === 'white' ? pt : 25 - pt;
+    if (die === dist) return true;
+    if (die > dist) {
+      if (cp === 'white') { for (let p = pt+1; p<=6; p++) if (points[p].color==='white'&&points[p].count>0) return false; }
+      else                { for (let p = pt-1; p>=19; p--) if (points[p].color==='black'&&points[p].count>0) return false; }
+      return true;
+    }
+    return false;
+  }
+
+  function search(pt, remain) {
+    const seen = new Set();
+    for (let i = 0; i < remain.length; i++) {
+      const d = remain[i];
+      if (seen.has(d)) continue; seen.add(d);
+      let to;
+      if (pt === 0) to = cp === 'white' ? 25 - d : d;
+      else to = pt + dir * d;
+      // Direct hit?
+      if (to === toPt) return [toPt];
+      // Bear-off hit?
+      if (toPt === 25 && canBearOffWith(pt, d)) return [25];
+      if (to < 1 || to > 24) continue;
+      const tp2 = points[to];
+      if (tp2.color && tp2.color !== cp && tp2.count > 1) continue; // blocked
+      const rem2 = [...remain]; rem2.splice(i, 1);
+      if (rem2.length === 0) continue;
+      const sub = search(to, rem2);
+      if (sub) return [to, ...sub];
+    }
+    return null;
+  }
+  return search(fromPt, movesLeft);
+}
+
+// Execute a chain move: fromPt → path[0] → path[1] → … (N legs)
+function executeChainMove(fromPt, path) {
+  if (!path || path.length === 0) return;
+  const toPt = path[0];
+  const remainingPath = path.slice(1);
+  const from = topCheckerVisualPos(fromPt);
+  const toPos = approxDestPos(toPt, fromPt);
+  playDragSound();
+  checkerAnim = {
+    fromPt, toPt,
+    x: from.x, y: from.y,
+    tx: toPos.x, ty: toPos.y,
+    color: currentPlayer,
+    t: 0, duration: 18, done: false,
+    remainingPath
+  };
+}
+
+// Approximate visual destination position (before game state changes)
+function approxDestPos(toPt, fromPt) {
+  if (toPt === 25) {
+    const count = off[currentPlayer];
+    const tx = BEAR_X + BEAR_W/2;
+    return { x: tx, y: currentPlayer === 'white' ? IY+IH-7-4-count*17 : IY+7+18+count*17 };
+  }
+  if (toPt === 0) {
+    return { x: BAR_X + BAR_W/2, y: currentPlayer === 'white' ? IY+IH*.25 : IY+IH*.75 };
+  }
+  const p = points[toPt];
+  const newI = (p.color === currentPlayer || p.count === 0) ? p.count : 0;
+  return { x: ptCx(toPt) + checkerXOff(toPt, newI), y: checkerCy(toPt, newI) };
+}
+
+// Feature 6: single-step move animation
+function executeMove(fromPt, toPt) {
+  const from = topCheckerVisualPos(fromPt);
+  const toPos = approxDestPos(toPt, fromPt);
+  playDragSound();
+  checkerAnim = {
+    fromPt, toPt,
+    x: from.x, y: from.y,
+    tx: toPos.x, ty: toPos.y,
+    color: currentPlayer,
+    t: 0, duration: 18, done: false,
+    remainingPath: []
+  };
+}
+
+function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
+  const cp = currentPlayer, opp = cp === 'white' ? 'black' : 'white';
+  let dieUsed;
+  if (toPt === 25) {
+    const dist = cp === 'white' ? fromPt : 25 - fromPt;
+    dieUsed = movesLeft.includes(dist) ? dist : movesLeft.filter(d=>d>dist).sort((a,b)=>a-b)[0];
+  } else if (fromPt === 0) {
+    dieUsed = cp === 'white' ? 25 - toPt : toPt;
+  } else {
+    dieUsed = Math.abs(toPt - fromPt);
+  }
+  // Defensive: if no die found, consume the closest available one to prevent freeze
+  if (dieUsed === undefined) dieUsed = movesLeft.reduce((best, d) => Math.abs(d - Math.abs(toPt - fromPt)) < Math.abs((best||99) - Math.abs(toPt - fromPt)) ? d : best, null);
+  const idx = movesLeft.indexOf(dieUsed);
+  if (idx !== -1) movesLeft.splice(idx, 1);
+
+  if (fromPt === 0) { bar[cp]--; }
+  else { points[fromPt].count--; if (points[fromPt].count === 0) points[fromPt].color = null; }
+
+  if (toPt === 25) {
+    off[cp]++; playBearOff();
+    selectedPoint = null; highlights = []; combinedHighlights = [];
+    if (off[cp] === 15) {
+      const opp2 = cp==='white'?'black':'white';
+      const isGammon = off[opp2]===0;
+      gameScore[cp] += isGammon ? 2 : 1;
+      phase='gameover'; statusMsg=(cp==='white'?'WHITE':'BLACK')+(isGammon?' GAMMON!':' WINS!');
+      statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(cp); turnTimer=-1;
+    }
+    else if (movesLeft.length === 0) { endTurn(); }
+    else if (!skipLegalCheck && !hasAnyLegalMove()) { statusMsg='No further moves — turn passed'; statusTimer=90; skipTimer=90; playDisappointment(); }
+    return;
+  }
+
+  let hitBlot = false;
+  if (points[toPt].color === opp && points[toPt].count === 1) {
+    // Capture blot visual position before removing from board
+    const _bx = ptCx(toPt) + checkerXOff(toPt, 0);
+    const _by = checkerCy(toPt, 0);
+    const _barY = opp === 'white' ? IY + IH*0.75 : IY + IH*0.25;
+    blotAnim = { x:_bx, y:_by, tx:BAR_X+BAR_W/2, ty:_barY, color:opp, t:0, duration:22 };
+    points[toPt].count = 0; points[toPt].color = null; bar[opp]++;
+    statusMsg = (opp==='white'?'White':'Black')+' checker hit!'; statusTimer = 80;
+    hitBlot = true; playBlotHit();
+  }
+  if (points[toPt].count === 0) points[toPt].color = cp;
+  points[toPt].count++;
+  if (!hitBlot) playCheckerPlace();
+  selectedPoint = null; highlights = []; combinedHighlights = [];
+
+  if (movesLeft.length === 0) { endTurn(); }
+  else if (!skipLegalCheck && !hasAnyLegalMove()) { statusMsg='No further moves — turn passed'; statusTimer=90; skipTimer=90; playDisappointment(); }
+}
+
+// ── Utilities ─────────────────────────────────────────────────
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+// ── Checker drawing ───────────────────────────────────────────
+function drawChecker(cx, cy, color, scale) {
+  if (scale === undefined) scale = 1;
+  const r = CHK_R * scale;
+  const isWhite = color === 'white';
+  const base = isWhite ? C.wBase : C.bBase;
+  const edge = isWhite ? C.wEdge : C.bEdge;
+  const inner = isWhite ? C.wInner : C.bInner;
+
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,0.55)'; ctx.shadowBlur=6*scale;
+  ctx.shadowOffsetX=2*scale; ctx.shadowOffsetY=3*scale;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle=edge; ctx.fill();
+  ctx.restore();
+
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle=edge; ctx.fill();
+
+  const fg = ctx.createRadialGradient(cx-r*.28,cy-r*.28,r*.05,cx,cy,r*.92);
+  fg.addColorStop(0,inner); fg.addColorStop(.5,base); fg.addColorStop(1,edge);
+  ctx.beginPath(); ctx.arc(cx,cy,r-2*scale,0,Math.PI*2); ctx.fillStyle=fg; ctx.fill();
+
+  ctx.beginPath(); ctx.arc(cx,cy,r*.62,0,Math.PI*2);
+  ctx.strokeStyle=isWhite?'rgba(120,90,30,0.35)':'rgba(0,0,0,0.5)';
+  ctx.lineWidth=1.5*scale; ctx.stroke();
+
+  const hg = ctx.createRadialGradient(cx-r*.3,cy-r*.3,1,cx-r*.3,cy-r*.3,r*.55);
+  hg.addColorStop(0,isWhite?'rgba(255,255,255,0.75)':'rgba(255,255,255,0.22)');
+  hg.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.beginPath(); ctx.arc(cx,cy,r-2*scale,0,Math.PI*2); ctx.fillStyle=hg; ctx.fill();
+}
+
+function drawCountBadge(cx, cy, count, color, scale) {
+  if (scale === undefined) scale = 1;
+  const r = CHK_R * scale, br = 9 * scale;
+  const isWhite = color === 'white';
+  ctx.beginPath(); ctx.arc(cx+r*.55,cy-r*.55,br,0,Math.PI*2);
+  ctx.fillStyle = isWhite ? C.bBase : C.wBase; ctx.fill();
+  ctx.strokeStyle = isWhite ? C.wEdge : C.bEdge; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = isWhite ? C.wInner : C.bBase;
+  ctx.font=`bold ${Math.round(10*scale)}px Courier New`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(count, cx+r*.55, cy-r*.55+.5);
+  ctx.textBaseline='alphabetic';
+}
+
+// Feature 5: rewritten drawPointCheckers with multi-floor x-offset and pile-from-base
+function drawPointCheckers(n) {
+  const pt = points[n];
+  if (!pt || pt.count === 0) return;
+  const baseCx = ptCx(n);
+  // Skip top checker if it's being animated away
+  const skipTop = (checkerAnim && checkerAnim.fromPt === n && !checkerAnim.done);
+  const drawCount = skipTop ? pt.count - 1 : pt.count;
+  if (drawCount <= 0) return;
+  const maxFloor = Math.floor((drawCount - 1) / MAX_PER_FLOOR);
+  // Draw higher floors first (behind), floor 0 last (in front)
+  for (let f = maxFloor; f >= 0; f--) {
+    for (let i = 0; i < drawCount; i++) {
+      if (Math.floor(i / MAX_PER_FLOOR) !== f) continue;
+      drawChecker(baseCx + checkerXOff(n, i), checkerCy(n, i), pt.color);
+    }
+  }
+  // No count badge — visual stacking is clear enough
+}
+
+function drawBarCheckers() {
+  const bx = BAR_X + BAR_W / 2;
+  for (let i = 0; i < bar.white; i++) drawChecker(bx, IY + IH*.75 - i*CHK_GAP, 'white');
+  for (let i = 0; i < bar.black; i++) drawChecker(bx, IY + IH*.25 + i*CHK_GAP, 'black');
+}
+
+function drawAllCheckers() {
+  for (let n = 1; n <= 24; n++) drawPointCheckers(n);
+  drawBarCheckers();
+}
+
+// ── Highlights & selection ────────────────────────────────────
+function drawPointHighlight(n, isHit, isCombined) {
+  if (n === 25) {
+    const pulse = .4 + .3 * Math.sin(time * .1);
+    const halfY = currentPlayer === 'white' ? IY + IH/2 : IY;
+    ctx.fillStyle = isCombined ? `rgba(0,180,255,${pulse})` : `rgba(60,220,80,${pulse})`;
+    ctx.fillRect(BEAR_X+2, halfY+2, BEAR_W-4, IH/2-4);
+    ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+    ctx.fillText('⬇ OFF', BEAR_X+BEAR_W/2, halfY+IH/4);
+    return;
+  }
+  const x = ptLeft(n);
+  const pulse = .55 + .45 * Math.sin(time * .10);
+  const glowCol  = isCombined ? '#00b4ff' : (isHit ? '#ff6e14' : '#00e060');
+  const fillRgba = isCombined ? 'rgba(0,180,255,0.14)' : (isHit ? 'rgba(255,110,20,0.18)' : 'rgba(60,220,80,0.16)');
+  const stroRgba = isCombined ? `rgba(0,180,255,${pulse})` : (isHit ? `rgba(255,110,20,${pulse})` : `rgba(0,224,96,${pulse})`);
+
+  // Subtle fill
+  ctx.beginPath();
+  if (n<=12) { ctx.moveTo(x,BOT_BASE); ctx.lineTo(x+PT_W,BOT_BASE); ctx.lineTo(x+PT_W/2,BOT_BASE-PT_H); }
+  else       { ctx.moveTo(x,TOP_BASE); ctx.lineTo(x+PT_W,TOP_BASE); ctx.lineTo(x+PT_W/2,TOP_BASE+PT_H); }
+  ctx.closePath();
+  ctx.fillStyle = fillRgba; ctx.fill();
+
+  // Glowing triangle perimeter stroke
+  ctx.save();
+  ctx.shadowColor = glowCol; ctx.shadowBlur = 14;
+  ctx.beginPath();
+  if (n<=12) { ctx.moveTo(x,BOT_BASE); ctx.lineTo(x+PT_W,BOT_BASE); ctx.lineTo(x+PT_W/2,BOT_BASE-PT_H); }
+  else       { ctx.moveTo(x,TOP_BASE); ctx.lineTo(x+PT_W,TOP_BASE); ctx.lineTo(x+PT_W/2,TOP_BASE+PT_H); }
+  ctx.closePath();
+  ctx.strokeStyle = stroRgba; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.restore();
+}
+
+function drawAllHighlights() {
+  for (const n of highlights) {
+    const isHit = n !== 25 && points[n].color && points[n].color !== currentPlayer && points[n].count === 1;
+    drawPointHighlight(n, isHit, false);
+  }
+  for (const n of combinedHighlights) {
+    drawPointHighlight(n, false, true);
+  }
+}
+
+// ── Glow rings on all checkers that have a legal move (pre-selection) ─────
+function drawMovableGlows() {
+  if (phase !== 'rolled' || selectedPoint !== null) return;
+  const pulse = 0.55 + 0.45 * Math.sin(time * 0.14);
+  const glow = `rgba(0,255,100,${(0.7 + 0.3 * pulse).toFixed(2)})`;
+
+  const drawGlow = (cx, cy) => {
+    ctx.save();
+    ctx.shadowColor = '#00ff80'; ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.arc(cx, cy, CHK_R + 5, 0, Math.PI * 2);
+    ctx.strokeStyle = glow; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.restore();
+  };
+
+  if (bar[currentPlayer] > 0) {
+    // Only bar checkers can move when on bar
+    if (validDestinations(0).length > 0) {
+      const cnt = bar[currentPlayer];
+      const cy = currentPlayer === 'white' ? IY+IH*.75-(cnt-1)*CHK_GAP : IY+IH*.25+(cnt-1)*CHK_GAP;
+      drawGlow(BAR_X + BAR_W / 2, cy);
+    }
+    return;
+  }
+  for (let n = 1; n <= 24; n++) {
+    const pt = points[n];
+    if (pt.color !== currentPlayer || pt.count === 0) continue;
+    if (validDestinations(n).length === 0 && validCombinedDestinations(n).length === 0) continue;
+    const topI = pt.count - 1;
+    drawGlow(ptCx(n) + checkerXOff(n, topI), checkerCy(n, topI));
+  }
+}
+
+function drawSelectionRing() {
+  if (selectedPoint === null) return;
+  // Flash on/off every 6 frames for a crisp blink
+  if (Math.floor(time / 6) % 2 === 1) return;
+  let cx, cy, r = CHK_R;
+
+  if (selectedPoint === 0) {
+    const count = bar[currentPlayer]; if (!count) return;
+    cx = BAR_X + BAR_W / 2;
+    cy = currentPlayer === 'white' ? IY+IH*.75-(count-1)*CHK_GAP : IY+IH*.25+(count-1)*CHK_GAP;
+  } else {
+    const pt = points[selectedPoint]; if (!pt || pt.count === 0) return;
+    const topI = pt.count - 1;
+    cx  = ptCx(selectedPoint) + checkerXOff(selectedPoint, topI);
+    cy  = checkerCy(selectedPoint, topI);
+  }
+  ctx.save();
+  ctx.shadowColor = '#ffe040'; ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.arc(cx, cy, r + 6, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(255,230,60,0.95)'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r + 2, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(255,255,180,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
+}
+
+// ── Dice area (banner + press R + moves left counter) ─────────
+function drawDiceArea() {
+  const gapTop=TOP_BASE+PT_H+4, gapBot=BOT_BASE-PT_H-4, gapCy=(gapTop+gapBot)/2;
+  const bW=210, bH=26, bR=5, bX=IX+HALF_W/2-105, bY=gapCy-54;
+
+  if (phase === 'opening' || phase === 'opening_w_rolling' || phase === 'opening_b' || phase === 'opening_b_rolling') {
+    // Opening roll banner
+    ctx.fillStyle='rgba(200,175,80,0.25)';
+    roundRect(bX,bY,bW,bH,bR); ctx.fill();
+    ctx.strokeStyle=C.ptGoldHi; ctx.lineWidth=1.5; roundRect(bX,bY,bW,bH,bR); ctx.stroke();
+    ctx.fillStyle='#f8e8a0'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+    ctx.fillText('Opening Roll', bX+bW/2, bY+18);
+
+    const _wn = players.white.name || 'White';
+    const _bn = players.black.name || 'Black';
+    const _cx = IX + HALF_W / 2;
+
+    if (phase === 'opening') {
+      // Show white player name large, prompt to roll
+      ctx.fillStyle='#f0dda0'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
+      ctx.fillText(_wn, _cx, gapCy - 6);
+      ctx.fillStyle=C.labelDim; ctx.font='bold 22px Courier New';
+      ctx.fillText('Press  R  to roll your dice', _cx, gapCy + 22);
+    } else if (phase === 'opening_w_rolling') {
+      // White rolling
+      ctx.fillStyle='#f0dda0'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
+      ctx.fillText(_wn, _cx, gapCy - 6);
+      ctx.fillStyle=C.labelDim; ctx.font='11px Courier New';
+      ctx.fillText('rolling...', _cx, gapCy + 18);
+    } else if (phase === 'opening_b') {
+      // White die stays; now show black player name, prompt to roll
+      ctx.fillStyle='#c0c4ff'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
+      ctx.fillText(_bn, _cx, gapCy - 6);
+      ctx.fillStyle=C.labelDim; ctx.font='bold 22px Courier New';
+      ctx.fillText('Press  R  to roll your dice', _cx, gapCy + 22);
+    } else if (phase === 'opening_b_rolling') {
+      // Both dice on board
+      ctx.fillStyle='#c0c4ff'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
+      ctx.fillText(_bn, _cx, gapCy - 6);
+      ctx.fillStyle=C.labelDim; ctx.font='11px Courier New';
+      ctx.fillText('rolling...', _cx, gapCy + 18);
+    }
+    return;
+  }
+
+  const isW = currentPlayer==='white';
+  ctx.fillStyle=isW?'rgba(240,220,160,0.22)':'rgba(30,32,48,0.65)';
+  roundRect(bX,bY,bW,bH,bR); ctx.fill();
+  ctx.strokeStyle=isW?C.wEdge:C.bInner; ctx.lineWidth=1.5; roundRect(bX,bY,bW,bH,bR); ctx.stroke();
+  ctx.fillStyle=isW?'#f8e8a0':'#d0d0ff'; ctx.font='bold 14px Courier New'; ctx.textAlign='center';
+  const _pn = isW ? players.white : players.black;
+  const _colorWord = isW ? 'white' : 'black';
+  ctx.fillText(_pn.name.substring(0,12) + ' plays ' + _colorWord, bX+bW/2, bY+18);
+
+  if (phase==='idle') {
+    ctx.fillStyle=C.labelDim; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
+    ctx.fillText('Press  R  to roll your dice', IX+HALF_W/2, gapCy+6);
+  } else if (phase==='rolled' && movesLeft.length > 0) {
+    ctx.fillStyle=C.labelDim; ctx.font='10px Courier New'; ctx.textAlign='center';
+    ctx.fillText(movesLeft.length+' move'+(movesLeft.length>1?'s':'')+' left', IX+HALF_W/2, gapBot-6);
+  }
+  // Dice themselves are drawn in drawDicePhysics() called from drawBoard()
+}
+
+// ── Chess clock display ───────────────────────────────────────
+function drawClock() {
+  if (phase!=='idle'&&phase!=='rolling'&&phase!=='rolled') return;
+  if (turnTimer<=0) return;
+  // Only reveal after 30 seconds have elapsed (< 4:30 remaining)
+  if (turnTimer > TURN_FRAMES - 1800) return;
+  const cx = IX + HALF_W + BAR_W + HALF_W/2;
+  const gapTop = TOP_BASE+PT_H+4, gapBot = BOT_BASE-PT_H-4;
+  const cy = (gapTop+gapBot)/2, r = 22;
+  const ratio = turnTimer / TURN_FRAMES;
+  const totalSecs = Math.ceil(turnTimer/60);
+  const m = Math.floor(totalSecs/60), s = totalSecs%60;
+  const label = m>0 ? m+':'+String(s).padStart(2,'0') : s+'s';
+  // green until 15s left → orange → red+flash for final 5s (the "+5" after 60s)
+  const color = ratio>0.231 ? '#66dd44' : ratio>0.077 ? '#ffaa00' : '#ff4444';
+  // bg
+  ctx.beginPath(); ctx.arc(cx,cy,r+2,0,Math.PI*2); ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fill();
+  // track
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.lineWidth=4; ctx.stroke();
+  // arc
+  ctx.beginPath(); ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+ratio*Math.PI*2);
+  ctx.strokeStyle=color; ctx.lineWidth=4; ctx.stroke();
+  // urgent flash when under 15 seconds
+  if (ratio<0.077 && Math.floor(time/8)%2===0) {
+    ctx.beginPath(); ctx.arc(cx,cy,r+4,0,Math.PI*2); ctx.strokeStyle='#ff4444'; ctx.lineWidth=1.5; ctx.stroke();
+  }
+  ctx.fillStyle=color; ctx.font='bold 10px Courier New'; ctx.textAlign='center';
+  ctx.fillText(label, cx, cy+4);
+}
+
+// ── $100 bill graphics ────────────────────────────────────────
+function drawBillGraphic(x, y, w, h, alpha) {
+  if (alpha === undefined) alpha = 1;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor='rgba(0,0,0,0.45)'; ctx.shadowBlur=5; ctx.shadowOffsetX=1; ctx.shadowOffsetY=2;
+  const r = Math.max(2, h*0.09);
+  // Background gradient
+  const bg = ctx.createLinearGradient(x, y, x, y+h);
+  bg.addColorStop(0,'#2a9c2a'); bg.addColorStop(0.35,'#1e7a1e'); bg.addColorStop(0.65,'#1a6e1a'); bg.addColorStop(1,'#145014');
+  roundRect(x,y,w,h,r); ctx.fillStyle=bg; ctx.fill();
+  ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+  // Outer border
+  roundRect(x,y,w,h,r); ctx.strokeStyle='#3dbc3d'; ctx.lineWidth=Math.max(0.5,h*0.04); ctx.stroke();
+  // Inner security border
+  const bp=Math.max(2,h*0.09);
+  roundRect(x+bp,y+bp,w-bp*2,h-bp*2,Math.max(1,h*0.05));
+  ctx.strokeStyle='rgba(120,220,120,0.3)'; ctx.lineWidth=0.5; ctx.stroke();
+  // Guilloche-like wavy fill pattern (3 horizontal arcs)
+  ctx.strokeStyle='rgba(60,160,60,0.18)'; ctx.lineWidth=0.8;
+  for (let row=0; row<3; row++) {
+    const wy=y+h*(0.25+row*0.25);
+    ctx.beginPath();
+    for (let xi=0; xi<=w; xi+=4) { ctx.lineTo(x+xi, wy+Math.sin(xi*0.35+row)*2); }
+    ctx.stroke();
+  }
+  // Portrait oval (Benjamin Franklin)
+  const px=x+w*0.3, py=y+h*0.5, pow=w*0.26, poh=h*0.74;
+  ctx.beginPath(); ctx.ellipse(px,py,pow/2,poh/2,0,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fill();
+  ctx.strokeStyle='rgba(180,240,180,0.45)'; ctx.lineWidth=0.7; ctx.stroke();
+  // Stylized face inside oval
+  if (w>42) {
+    const fr=Math.min(pow,poh)*0.28;
+    ctx.beginPath(); ctx.arc(px,py-fr*0.15,fr,0,Math.PI*2);
+    ctx.strokeStyle='rgba(150,230,150,0.4)'; ctx.lineWidth=0.6; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(px,py+fr*0.55,fr*0.55,fr*0.45,0,0,Math.PI);
+    ctx.strokeStyle='rgba(150,230,150,0.35)'; ctx.lineWidth=0.6; ctx.stroke();
+  }
+  // Large "100" right side
+  ctx.fillStyle='rgba(210,250,210,0.88)';
+  ctx.font=`bold ${Math.max(7,h*0.48)}px Georgia,serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('100',x+w*0.72,y+h*0.52);
+  // Corner "100" numerals
+  ctx.fillStyle='rgba(190,240,190,0.75)';
+  ctx.font=`bold ${Math.max(4,h*0.22)}px monospace`;
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('100',x+bp+2,y+bp+1);
+  ctx.textAlign='right'; ctx.textBaseline='bottom';
+  ctx.fillText('100',x+w-bp-2,y+h-bp-1);
+  // Header text
+  if (w>50) {
+    ctx.fillStyle='rgba(170,230,170,0.65)';
+    ctx.font=`${Math.max(3,h*0.1)}px monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText('THE UNITED STATES OF AMERICA',x+w/2,y+bp+2);
+  }
+  // Footer text
+  ctx.fillStyle='rgba(190,240,190,0.78)';
+  ctx.font=`bold ${Math.max(3,h*0.12)}px Georgia,serif`;
+  ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText('ONE HUNDRED DOLLARS',x+w/2,y+h-bp-1);
+  // Treasury seal (right of portrait)
+  if (w>52) {
+    const sx=x+w*0.52, sy=y+h*0.5, sr=Math.min(h*0.18,5);
+    ctx.beginPath(); ctx.arc(sx,sy,sr,0,Math.PI*2);
+    ctx.strokeStyle='rgba(100,200,100,0.4)'; ctx.lineWidth=0.6; ctx.stroke();
+    ctx.fillStyle='rgba(100,200,100,0.2)'; ctx.fill();
+    ctx.fillStyle='rgba(160,230,160,0.6)';
+    ctx.font=`bold ${Math.max(3,sr*1.1)}px sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('$',sx,sy+0.5);
+  }
+  ctx.restore();
+}
+
+function billTrayPos() {
+  const diff = (off.black - off.white) / 15;
+  return { x: BEAR_X+5, y: IY + IH/2 - diff*(IH/2-38) };
+}
+
+function drawDollarBill() {
+  if (off.white===0 && off.black===0) return;
+  if (phase==='gameover' && billSafeAnim && !billSafeAnim.done) return; // hide tray bill during win anim
+  const pos = billTrayPos();
+  const billW = BEAR_W-10, billH = 27;
+  drawBillGraphic(pos.x, pos.y - billH/2, billW, billH, 0.88);
+}
+
+// ── Safe box (win animation) ───────────────────────────────────
+function drawSafeBox(cx, cy) {
+  const w=58, h=48;
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,0.55)'; ctx.shadowBlur=10; ctx.shadowOffsetX=2; ctx.shadowOffsetY=4;
+  const g=ctx.createLinearGradient(cx-w/2,cy-h/2,cx+w/2,cy+h/2);
+  g.addColorStop(0,'#8a8a8a'); g.addColorStop(0.25,'#606060'); g.addColorStop(0.6,'#3a3a3a'); g.addColorStop(1,'#1c1c1c');
+  roundRect(cx-w/2,cy-h/2,w,h,5); ctx.fillStyle=g; ctx.fill();
+  ctx.shadowBlur=0; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+  roundRect(cx-w/2,cy-h/2,w,h,5); ctx.strokeStyle='#aaa'; ctx.lineWidth=1.5; ctx.stroke();
+  // Recessed door panel
+  const dp=5;
+  roundRect(cx-w/2+dp,cy-h/2+dp,w-dp*2,h-dp*2,3);
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fill();
+  ctx.strokeStyle='#555'; ctx.lineWidth=0.7; ctx.stroke();
+  // Hinge marks (left side)
+  [cy-h*0.22, cy+h*0.22].forEach(hy => {
+    roundRect(cx-w/2,hy-3,6,6,1); ctx.fillStyle='#777'; ctx.fill();
+    ctx.strokeStyle='#999'; ctx.lineWidth=0.5; ctx.stroke();
+  });
+  // Combination dial
+  const dr=h*0.22;
+  const dg=ctx.createRadialGradient(cx-7,cy,0,cx-7,cy,dr);
+  dg.addColorStop(0,'#888'); dg.addColorStop(0.6,'#555'); dg.addColorStop(1,'#2a2a2a');
+  ctx.beginPath(); ctx.arc(cx-7,cy,dr,0,Math.PI*2); ctx.fillStyle=dg; ctx.fill();
+  ctx.strokeStyle='#aaa'; ctx.lineWidth=1; ctx.stroke();
+  for (let a=0; a<Math.PI*2; a+=Math.PI/4) {
+    ctx.beginPath();
+    ctx.moveTo(cx-7+Math.cos(a)*(dr-2),cy+Math.sin(a)*(dr-2));
+    ctx.lineTo(cx-7+Math.cos(a)*dr,cy+Math.sin(a)*dr);
+    ctx.strokeStyle='#ccc'; ctx.lineWidth=0.8; ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(cx-7,cy,dr*0.32,0,Math.PI*2);
+  ctx.fillStyle='#222'; ctx.fill(); ctx.strokeStyle='#666'; ctx.lineWidth=0.5; ctx.stroke();
+  // Handle bar (right)
+  ctx.strokeStyle='#ddd'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(cx+13,cy-7); ctx.lineTo(cx+22,cy-7);
+  ctx.lineTo(cx+22,cy+7); ctx.lineTo(cx+13,cy+7); ctx.stroke();
+  // Bill slot (top of door)
+  const slotY=cy-h/2+dp+3;
+  roundRect(cx-14,slotY,28,4,1); ctx.fillStyle='#111'; ctx.fill();
+  ctx.strokeStyle='#444'; ctx.lineWidth=0.5; ctx.stroke();
+  // Label
+  ctx.fillStyle='#888'; ctx.font='bold 9px Courier New'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('$', cx+7, cy+1);
+  ctx.restore();
+}
+
+function triggerBillWinAnim(winner) {
+  const pos = billTrayPos();
+  // Safe appears in the gameover overlay, to the right of the winner's name row
+  const gcx = IX + PLAY_W / 2, gcy = IY + IH / 2;
+  const safeX = gcx + 130; // right side of overlay panel
+  const safeY = (winner === 'white') ? gcy + 18 : gcy + 54;
+  billSafeAnim = {
+    fromX: pos.x + (BEAR_W-10)/2, fromY: pos.y,
+    safeX, safeY, winner,
+    t: 0, duration: 90, done: false
+  };
+}
+
+function updateBillSafeAnim() {
+  if (!billSafeAnim || billSafeAnim.done) return;
+  billSafeAnim.t++;
+  if (billSafeAnim.t >= billSafeAnim.duration) billSafeAnim.done = true;
+}
+
+function drawBillSafeAnim() {
+  if (!billSafeAnim) return;
+  const a = billSafeAnim;
+  // Draw the safe (always visible once triggered)
+  drawSafeBox(a.safeX, a.safeY);
+  if (a.done) return;
+  const p = Math.min(1, a.t / a.duration);
+  const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+  // Bill shrinks + fades as it enters the slot
+  const scale = 1 - ease * 0.65;
+  const bw = 80 * scale, bh = 34 * scale;
+  const bx = a.fromX + (a.safeX - a.fromX) * ease - bw/2;
+  const by = a.fromY + (a.safeY - a.fromY) * ease - bh/2;
+  const alpha = p < 0.72 ? 1 : 1 - (p-0.72)/0.28;
+  drawBillGraphic(bx, by, bw, bh, alpha);
+}
+
+// ── Title screen ─────────────────────────────────────────────
+function drawTitleScreen() {
+  ctx.fillStyle='#08090f'; ctx.fillRect(0,0,CW,CH);
+
+  ctx.strokeStyle='rgba(201,152,58,0.4)'; ctx.lineWidth=2;
+  roundRect(16,16,CW-32,CH-32,16); ctx.stroke();
+  ctx.strokeStyle='rgba(201,152,58,0.12)'; ctx.lineWidth=1;
+  roundRect(22,22,CW-44,CH-44,12); ctx.stroke();
+
+  ctx.fillStyle='rgba(201,152,58,0.06)'; ctx.font='bold 120px Courier New'; ctx.textAlign='center';
+  ctx.fillText('BG', CW/2, CH/2+55);
+
+  const tg=ctx.createLinearGradient(CW/2-220,0,CW/2+220,0);
+  tg.addColorStop(0,C.ptGold); tg.addColorStop(.5,C.ptGoldHi); tg.addColorStop(1,C.ptGold);
+  ctx.fillStyle=tg; ctx.font='bold 56px Courier New'; ctx.textAlign='center';
+  ctx.fillText('BACKGAMMON', CW/2, CH*.22);
+  ctx.strokeStyle='rgba(201,152,58,0.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(CW/2-200,CH*.22+12); ctx.lineTo(CW/2+200,CH*.22+12); ctx.stroke();
+
+  if (gameScore.white>0||gameScore.black>0) {
+    ctx.fillStyle='rgba(255,255,255,0.05)';
+    roundRect(CW/2-150,CH*.38-26,300,46,8); ctx.fill();
+    ctx.strokeStyle='rgba(201,152,58,0.25)'; ctx.lineWidth=1;
+    roundRect(CW/2-150,CH*.38-26,300,46,8); ctx.stroke();
+    ctx.font='bold 11px Courier New'; ctx.fillStyle=C.labelDim; ctx.textAlign='center';
+    ctx.fillText('SCORE', CW/2, CH*.38-8);
+    ctx.font='bold 18px Courier New';
+    ctx.fillStyle=C.wBase; ctx.textAlign='right';
+    ctx.fillText(players.white.name.substring(0,9)+'  '+gameScore.white, CW/2-8, CH*.38+14);
+    ctx.fillStyle='rgba(201,152,58,0.6)'; ctx.textAlign='center';
+    ctx.fillText('–', CW/2, CH*.38+14);
+    ctx.fillStyle='#e8e8ff'; ctx.textAlign='left';
+    ctx.fillText('  '+gameScore.black+'  '+players.black.name.substring(0,9), CW/2+8, CH*.38+14);
+  } else {
+    ctx.fillStyle=C.labelDim; ctx.font='13px Courier New'; ctx.textAlign='center';
+    ctx.fillText('TWO PLAYER  ·  HOT SEAT', CW/2, CH*.40);
+  }
+
+  const py=CH*.58;
+  ctx.fillStyle='rgba(240,221,176,0.08)';
+  roundRect(CW/2-210,py-22,185,38,6); ctx.fill();
+  ctx.strokeStyle=C.wEdge; ctx.lineWidth=1;
+  roundRect(CW/2-210,py-22,185,38,6); ctx.stroke();
+  drawChecker(CW/2-192,py-3,'white',.65);
+  ctx.fillStyle=C.wBase; ctx.font='13px Courier New'; ctx.textAlign='left';
+  ctx.fillText(players.white.name.substring(0,14), CW/2-168, py+4);
+  if (players.white.flag) drawCanvasFlag(players.white.flag, CW/2-26, py-16, 30, 20);
+
+  ctx.fillStyle='rgba(30,32,48,0.5)';
+  roundRect(CW/2+25,py-22,185,38,6); ctx.fill();
+  ctx.strokeStyle=C.bInner; ctx.lineWidth=1;
+  roundRect(CW/2+25,py-22,185,38,6); ctx.stroke();
+  drawChecker(CW/2+43,py-3,'black',.65);
+  ctx.fillStyle='#e8e8ff'; ctx.font='13px Courier New'; ctx.textAlign='left';
+  ctx.fillText(players.black.name.substring(0,14), CW/2+67, py+4);
+  if (players.black.flag) drawCanvasFlag(players.black.flag, CW/2+198, py-16, 30, 20);
+
+  const pulse=.6+.4*Math.sin(time*.06);
+  ctx.globalAlpha=pulse;
+  ctx.fillStyle=C.ptGoldHi; ctx.font='bold 16px Courier New'; ctx.textAlign='center';
+  ctx.fillText('Press  R  to begin', CW/2, CH*.78);
+  ctx.globalAlpha=1;
+
+  ctx.fillStyle='rgba(154,136,96,0.45)'; ctx.font='11px Courier New'; ctx.textAlign='center';
+  ctx.fillText('Click checkers to select  ·  ESC to deselect', CW/2, CH*.87);
+}
+
+// ── Board drawing ─────────────────────────────────────────────
+function drawWoodFrame() {
+  ctx.beginPath();
+  ctx.moveTo(BX+10,BY+BH); ctx.lineTo(BX+BW-5,BY+BH);
+  ctx.lineTo(BX+BW-5+EXTRUDE,BY+BH+EXTRUDE); ctx.lineTo(BX+10+EXTRUDE,BY+BH+EXTRUDE);
+  ctx.closePath();
+  const bf=ctx.createLinearGradient(0,BY+BH,0,BY+BH+EXTRUDE);
+  bf.addColorStop(0,'#3a1a06'); bf.addColorStop(1,'#1a0a02');
+  ctx.fillStyle=bf; ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(BX+BW,BY+10); ctx.lineTo(BX+BW,BY+BH-5);
+  ctx.lineTo(BX+BW+EXTRUDE,BY+BH-5+EXTRUDE); ctx.lineTo(BX+BW+EXTRUDE,BY+10+EXTRUDE);
+  ctx.closePath();
+  const rf=ctx.createLinearGradient(BX+BW,0,BX+BW+EXTRUDE,0);
+  rf.addColorStop(0,'#2e1305'); rf.addColorStop(1,'#150802');
+  ctx.fillStyle=rf; ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(BX+BW-5,BY+BH-5); ctx.lineTo(BX+BW-5+EXTRUDE,BY+BH-5+EXTRUDE);
+  ctx.lineTo(BX+BW+EXTRUDE,BY+BH-5+EXTRUDE); ctx.lineTo(BX+BW,BY+BH-5);
+  ctx.closePath(); ctx.fillStyle='#1a0a02'; ctx.fill();
+
+  const wg=ctx.createLinearGradient(BX,BY,BX+BW,BY+BH);
+  wg.addColorStop(0,C.woodLight); wg.addColorStop(.15,C.wood);
+  wg.addColorStop(.5,C.woodDark); wg.addColorStop(.85,C.wood); wg.addColorStop(1,C.woodLight);
+  roundRect(BX,BY,BW,BH,10); ctx.fillStyle=wg; ctx.fill();
+
+  ctx.strokeStyle=C.woodLight; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(BX+12,BY+1); ctx.lineTo(BX+BW-12,BY+1); ctx.stroke();
+
+  ctx.save(); ctx.shadowColor='rgba(0,0,0,0.8)'; ctx.shadowBlur=8; ctx.shadowOffsetX=2; ctx.shadowOffsetY=2;
+  roundRect(BX,BY,BW,BH,10); ctx.strokeStyle=C.woodDark; ctx.lineWidth=2; ctx.stroke();
+  ctx.restore();
+}
+
+function drawTriangle(x, tipY, baseY, fill, hi) {
+  const cx=x+PT_W/2;
+  const g=ctx.createLinearGradient(cx,baseY,cx,tipY);
+  g.addColorStop(0,hi); g.addColorStop(.6,fill); g.addColorStop(1,fill+'88');
+  ctx.beginPath(); ctx.moveTo(x,baseY); ctx.lineTo(x+PT_W,baseY); ctx.lineTo(cx,tipY);
+  ctx.closePath(); ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle=C.divider; ctx.lineWidth=1; ctx.stroke();
+}
+
+function drawPoints() {
+  for(let n=1;n<=24;n++){
+    const x=ptLeft(n), odd=n%2===1;
+    const fill=odd?C.ptGold:C.ptRed, hi=odd?C.ptGoldHi:C.ptRedHi;
+    if(n<=12) drawTriangle(x,BOT_BASE-PT_H,BOT_BASE,fill,hi);
+    else      drawTriangle(x,TOP_BASE+PT_H,TOP_BASE,fill,hi);
+  }
+}
+
+function drawBar() {
+  const g=ctx.createLinearGradient(BAR_X,0,BAR_X+BAR_W,0);
+  g.addColorStop(0,C.woodDark); g.addColorStop(.35,C.bar); g.addColorStop(.65,C.bar); g.addColorStop(1,C.woodDark);
+  ctx.fillStyle=g; ctx.fillRect(BAR_X,IY,BAR_W,IH);
+  ctx.strokeStyle=C.woodDark; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(BAR_X,IY); ctx.lineTo(BAR_X,IY+IH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(BAR_X+BAR_W,IY); ctx.lineTo(BAR_X+BAR_W,IY+IH); ctx.stroke();
+  ctx.strokeStyle=C.barLine; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(BAR_X+BAR_W/2,IY+30); ctx.lineTo(BAR_X+BAR_W/2,IY+IH-30); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.save(); ctx.translate(BAR_X+BAR_W/2,IY+IH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillStyle=C.labelDim; ctx.font='bold 11px Courier New'; ctx.textAlign='center';
+  ctx.fillText('BAR',0,4); ctx.restore();
+}
+
+// ── Canvas-drawn country flags ─────────────────────────────────
+function drawCanvasFlag(code, x, y, w, h) {
+  if (!code) return;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  const cx = x+w/2, cy = y+h/2;
+  const fill  = c => { ctx.fillStyle=c; ctx.fillRect(x,y,w,h); };
+  const hB    = (c,yf,hf) => { ctx.fillStyle=c; ctx.fillRect(x,y+h*yf,w,h*hf); };
+  const vB    = (c,xf,wf) => { ctx.fillStyle=c; ctx.fillRect(x+w*xf,y,w*wf,h); };
+  const hS    = (...cs) => cs.forEach((c,i)=>hB(c,i/cs.length,1/cs.length));
+  const vS    = (...cs) => cs.forEach((c,i)=>vB(c,i/cs.length,1/cs.length));
+  const circ  = (c,ox,oy,r) => { ctx.fillStyle=c; ctx.beginPath(); ctx.arc(cx+ox,cy+oy,r,0,Math.PI*2); ctx.fill(); };
+  const star5 = (c,sx,sy,r) => {
+    ctx.fillStyle=c; ctx.beginPath();
+    for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2; ctx.lineTo(sx+(i%2?r*0.4:r)*Math.cos(a),sy+(i%2?r*0.4:r)*Math.sin(a));}
+    ctx.closePath(); ctx.fill();
+  };
+  // Nordic-style cross (vertical bar left of centre)
+  const nordCross = (bg, colors, widths) => {
+    const ox = x+w*0.375;
+    fill(bg);
+    colors.forEach((c,i) => {
+      const cw=widths[i];
+      ctx.fillStyle=c; ctx.fillRect(x,cy-cw/2,w,cw); ctx.fillRect(ox-cw/2,y,cw,h);
+    });
+  };
+
+  switch(code) {
+    case 'AR': // Argentina – light blue / white / light blue + sun
+      hS('#74acdf','#fff','#74acdf');
+      { ctx.fillStyle='#f6b40e';
+        ctx.beginPath(); ctx.arc(cx,cy,h*0.2,0,Math.PI*2); ctx.fill();
+        for(let i=0;i<16;i++){const a=i*Math.PI/8; ctx.strokeStyle='#f6b40e'; ctx.lineWidth=h*0.04;
+          ctx.beginPath(); ctx.moveTo(cx+h*0.23*Math.cos(a),cy+h*0.23*Math.sin(a));
+          ctx.lineTo(cx+h*0.31*Math.cos(a),cy+h*0.31*Math.sin(a)); ctx.stroke();}
+        circ('#843511',0,0,h*0.1); }
+      break;
+    case 'AM': hS('#d90012','#0033a0','#f2a800'); break;
+    case 'AU': // Australia – blue + mini Union Jack + Southern Cross
+      fill('#00008b');
+      { ctx.save(); ctx.rect(x,y,w*0.4,h*0.5); ctx.clip();
+        ctx.fillStyle='#012169'; ctx.fillRect(x,y,w*0.4,h*0.5);
+        ctx.strokeStyle='#fff'; ctx.lineWidth=h*0.25;
+        ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w*0.4,y+h*0.5); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x+w*0.4,y); ctx.lineTo(x,y+h*0.5); ctx.stroke();
+        ctx.strokeStyle='#c8102e'; ctx.lineWidth=h*0.12;
+        ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w*0.4,y+h*0.5); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x+w*0.4,y); ctx.lineTo(x,y+h*0.5); ctx.stroke();
+        ctx.fillStyle='#fff'; ctx.fillRect(x,y+h*0.2,w*0.4,h*0.1); ctx.fillRect(x+w*0.17,y,w*0.06,h*0.5);
+        ctx.fillStyle='#c8102e'; ctx.fillRect(x,y+h*0.225,w*0.4,h*0.05); ctx.fillRect(x+w*0.185,y,w*0.03,h*0.5);
+        ctx.restore(); }
+      [[0.75,0.32],[0.87,0.6],[0.62,0.65],[0.74,0.8],[0.57,0.42]].forEach(([fx,fy])=>star5('#fff',x+w*fx,y+h*fy,h*0.075));
+      break;
+    case 'AT': hS('#ed2939','#fff','#ed2939'); break;
+    case 'AZ': // Azerbaijan – tricolor + crescent & star
+      hS('#0092bc','#e8112d','#00af66');
+      circ('#fff',-w*0.05,0,h*0.22); ctx.fillStyle='#e8112d'; ctx.beginPath(); ctx.arc(cx+w*0.01,cy,h*0.18,0,Math.PI*2); ctx.fill();
+      star5('#fff',cx+w*0.2,cy,h*0.09);
+      break;
+    case 'BE': vS('#000','#fae042','#ef3340'); break;
+    case 'BR': // Brazil – green + yellow rhombus + blue circle
+      fill('#009c3b');
+      { ctx.fillStyle='#fedf00'; ctx.beginPath(); ctx.moveTo(cx,y+h*0.1); ctx.lineTo(x+w*0.93,cy); ctx.lineTo(cx,y+h*0.9); ctx.lineTo(x+w*0.07,cy); ctx.closePath(); ctx.fill();
+        circ('#002776',0,0,h*0.27);
+        ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,h*0.27,0,Math.PI*2); ctx.clip();
+        hB('#fff',0.42,0.16); ctx.restore(); }
+      break;
+    case 'CA': // Canada – red/white/red + maple leaf
+      vS('#ff0000','#fff','#ff0000');
+      { ctx.fillStyle='#ff0000'; ctx.beginPath();
+        for(let i=0;i<11;i++){const a=i*2*Math.PI/11-Math.PI/2; ctx.lineTo(cx+(i%2?h*0.15:h*0.33)*Math.cos(a),cy+(i%2?h*0.15:h*0.33)*Math.sin(a));}
+        ctx.closePath(); ctx.fill(); }
+      break;
+    case 'CN': // China – red + stars
+      fill('#de2910');
+      star5('#ffde00',x+w*0.25,y+h*0.28,h*0.2);
+      [[0.48,0.12],[0.56,0.24],[0.56,0.42],[0.48,0.55]].forEach(([fx,fy])=>star5('#ffde00',x+w*fx,y+h*fy,h*0.08));
+      break;
+    case 'CZ': // Czech Republic – white/red + blue triangle
+      hS('#fff','#d7141a');
+      ctx.fillStyle='#11457e'; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w*0.5,cy); ctx.lineTo(x,y+h); ctx.closePath(); ctx.fill();
+      break;
+    case 'DK': nordCross('#C60C30',['#fff'],[h*0.22]); break;
+    case 'EG': // Egypt – red/white/black + eagle
+      hS('#ce1126','#fff','#000');
+      { ctx.fillStyle='#c09300'; ctx.fillRect(cx-w*0.07,cy-h*0.12,w*0.14,h*0.2); }
+      break;
+    case 'FI': nordCross('#fff',['#003580'],[h*0.22]); break;
+    case 'FR': vS('#003189','#fff','#ef4135'); break;
+    case 'GE': // Georgia – white + big red cross + 4 small crosses
+      fill('#fff');
+      ctx.fillStyle='#ff0000'; ctx.fillRect(x,cy-h*0.1,w,h*0.2); ctx.fillRect(cx-w*0.1,y,w*0.2,h);
+      [[0.22,0.22],[0.78,0.22],[0.22,0.78],[0.78,0.78]].forEach(([fx,fy])=>{
+        ctx.fillRect(x+w*fx-w*0.06,y+h*fy-h*0.02,w*0.12,h*0.04);
+        ctx.fillRect(x+w*fx-w*0.02,y+h*fy-h*0.07,w*0.04,h*0.14); });
+      break;
+    case 'DE': hS('#000','#dd0000','#ffcc00'); break;
+    case 'GR': // Greece – blue/white stripes + canton with cross
+      hS('#0d5eaf','#fff','#0d5eaf','#fff','#0d5eaf','#fff','#0d5eaf','#fff','#0d5eaf');
+      ctx.fillStyle='#0d5eaf'; ctx.fillRect(x,y,w*0.44,h*0.56);
+      ctx.fillStyle='#fff';
+      ctx.fillRect(x,y+h*0.2,w*0.44,h*0.12); ctx.fillRect(x+w*0.17,y,w*0.09,h*0.56);
+      break;
+    case 'HU': hS('#ce2939','#fff','#477050'); break;
+    case 'IN': // India – tricolor + Ashoka wheel
+      hS('#ff9933','#fff','#138808');
+      { ctx.strokeStyle='#000080'; ctx.lineWidth=Math.max(0.5,h*0.04);
+        ctx.beginPath(); ctx.arc(cx,cy,h*0.17,0,Math.PI*2); ctx.stroke();
+        for(let i=0;i<24;i++){const a=i*Math.PI/12; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+h*0.16*Math.cos(a),cy+h*0.16*Math.sin(a)); ctx.stroke();}
+        ctx.beginPath(); ctx.arc(cx,cy,h*0.04,0,Math.PI*2); ctx.stroke(); }
+      break;
+    case 'IR': // Iran – green/white/red + emblem
+      hS('#239f40','#fff','#da0000');
+      circ('#239f40',0,0,h*0.12); circ('#da0000',0,0,h*0.07);
+      break;
+    case 'IQ': // Iraq – red/white/black + green band
+      hS('#ce1126','#fff','#000');
+      ctx.fillStyle='#007a3d'; ctx.fillRect(cx-w*0.18,cy-h*0.07,w*0.36,h*0.1);
+      break;
+    case 'IL': // Israel – white + 2 blue stripes + Star of David
+      fill('#fff');
+      hB('#0038b8',0.17,0.17); hB('#0038b8',0.66,0.17);
+      { const r=h*0.22; ctx.strokeStyle='#0038b8'; ctx.lineWidth=Math.max(1,h*0.07); ctx.lineJoin='round'; ctx.lineCap='round';
+        for(let t=0;t<2;t++){
+          ctx.beginPath();
+          for(let i=0;i<3;i++){const a=(t?Math.PI/2:-Math.PI/2)+i*2*Math.PI/3; i===0?ctx.moveTo(cx+r*Math.cos(a),cy+r*Math.sin(a)):ctx.lineTo(cx+r*Math.cos(a),cy+r*Math.sin(a));}
+          ctx.closePath(); ctx.stroke(); } }
+      break;
+    case 'IT': vS('#009246','#fff','#ce2b37'); break;
+    case 'JP': fill('#fff'); circ('#bc002d',0,0,h*0.3); break;
+    case 'MX': // Mexico – green/white/red + eagle
+      vS('#006847','#fff','#ce1126'); circ('#6b3a2a',0,0,h*0.1);
+      break;
+    case 'MA': // Morocco – red + green pentagram (outline)
+      fill('#c1272d');
+      { ctx.strokeStyle='#006233'; ctx.lineWidth=Math.max(1,h*0.05); ctx.lineJoin='miter';
+        ctx.beginPath();
+        for(let i=0;i<5;i++){const a=-Math.PI/2+i*4*Math.PI/5; i===0?ctx.moveTo(cx+h*0.22*Math.cos(a),cy+h*0.22*Math.sin(a)):ctx.lineTo(cx+h*0.22*Math.cos(a),cy+h*0.22*Math.sin(a));}
+        ctx.closePath(); ctx.stroke(); }
+      break;
+    case 'NL': hS('#ae1c28','#fff','#21468b'); break;
+    case 'NO': // Norway – red + white + blue cross
+      nordCross('#ef2b2d',['#fff','#002868'],[h*0.28,h*0.14]);
+      break;
+    case 'PL': hS('#fff','#dc143c'); break;
+    case 'PT': // Portugal – green/red + simplified coat of arms
+      vB('#006600',0,0.38); vB('#ff0000',0.38,0.62);
+      circ('#ffd700',-w*0.12,0,h*0.2); circ('#00308f',-w*0.12,0,h*0.14); circ('#fff',-w*0.12,0,h*0.08);
+      break;
+    case 'RO': vS('#002b7f','#fcd116','#ce1126'); break;
+    case 'RU': hS('#fff','#0036a3','#da0a00'); break;
+    case 'SA': // Saudi Arabia – dark green + white sword
+      fill('#006233');
+      { ctx.fillStyle='#fff';
+        ctx.fillRect(cx-w*0.28,cy+h*0.05,w*0.56,h*0.08);     // blade
+        ctx.fillRect(cx-w*0.04,cy-h*0.18,w*0.06,h*0.23);     // handle
+        ctx.fillRect(cx-w*0.12,cy-h*0.01,w*0.08,h*0.06);     // guard
+        ctx.fillRect(cx+w*0.04,cy-h*0.01,w*0.08,h*0.06); }
+      break;
+    case 'ZA': // South Africa – complex Y-shape
+      fill('#007a4d');
+      ctx.fillStyle='#000'; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w*0.38,cy); ctx.lineTo(x,y+h); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#ffb612'; ctx.fillRect(x+w*0.38,y,w*0.62,h*0.37);
+      ctx.fillStyle='#fff';   ctx.fillRect(x+w*0.38,y+h*0.37,w*0.62,h*0.08);
+      ctx.fillStyle='#007a4d';ctx.fillRect(x+w*0.38,y+h*0.45,w*0.62,h*0.1);
+      ctx.fillStyle='#fff';   ctx.fillRect(x+w*0.38,y+h*0.55,w*0.62,h*0.08);
+      ctx.fillStyle='#de3831';ctx.fillRect(x+w*0.38,y+h*0.63,w*0.62,h*0.37);
+      ctx.strokeStyle='#ffb612'; ctx.lineWidth=h*0.07;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w*0.38,cy); ctx.lineTo(x,y+h); ctx.stroke();
+      break;
+    case 'KR': // South Korea – white + yin-yang + trigrams
+      fill('#fff');
+      { const r=h*0.24;
+        ctx.fillStyle='#cd2e3a'; ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI*1.25,Math.PI*0.25); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#003478'; ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI*0.25,Math.PI*1.25); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#cd2e3a'; ctx.beginPath(); ctx.arc(cx,cy-r/2,r/2,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#003478'; ctx.beginPath(); ctx.arc(cx,cy+r/2,r/2,0,Math.PI*2); ctx.fill(); }
+      break;
+    case 'ES': // Spain – red/yellow/red
+      fill('#aa151b'); hB('#f1bf00',0.25,0.5);
+      break;
+    case 'SE': nordCross('#006AA7',['#FECC02'],[h*0.22]); break;
+    case 'CH': // Switzerland – red + centered white cross
+      fill('#ff0000');
+      { const cw=h*0.2, cl=h*0.5; ctx.fillStyle='#fff';
+        ctx.fillRect(cx-cw/2,cy-cl/2,cw,cl); ctx.fillRect(cx-cl/2,cy-cw/2,cl,cw); }
+      break;
+    case 'TR': // Turkey – red + crescent & star
+      fill('#e30a17');
+      circ('#fff',-w*0.06,0,h*0.26);
+      ctx.fillStyle='#e30a17'; ctx.beginPath(); ctx.arc(cx-w*0.01,cy,h*0.21,0,Math.PI*2); ctx.fill();
+      star5('#fff',cx+w*0.17,cy,h*0.12);
+      break;
+    case 'AE': // UAE – green/white/black + red left strip
+      hS('#00732f','#fff','#000'); ctx.fillStyle='#ff0000'; ctx.fillRect(x,y,w*0.24,h);
+      break;
+    case 'GB': // UK – Union Jack
+      fill('#012169');
+      ctx.strokeStyle='#fff'; ctx.lineWidth=h*0.28;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w,y+h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+w,y); ctx.lineTo(x,y+h); ctx.stroke();
+      ctx.strokeStyle='#c8102e'; ctx.lineWidth=h*0.14;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w,y+h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+w,y); ctx.lineTo(x,y+h); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.fillRect(x,cy-h*0.16,w,h*0.32); ctx.fillRect(cx-w*0.16,y,w*0.32,h);
+      ctx.fillStyle='#c8102e'; ctx.fillRect(x,cy-h*0.1,w,h*0.2); ctx.fillRect(cx-w*0.1,y,w*0.2,h);
+      break;
+    case 'UA': hS('#005bbb','#ffd700'); break;
+    case 'US': // USA – stripes + blue canton with stars
+      { for(let i=0;i<13;i++){ctx.fillStyle=i%2===0?'#b22234':'#fff'; ctx.fillRect(x,y+i*h/13,w,h/13);}
+        ctx.fillStyle='#3c3b6e'; ctx.fillRect(x,y,w*0.4,h*7/13);
+        ctx.fillStyle='#fff';
+        for(let r=0;r<5;r++){const cols=r%2===0?6:5; const off=r%2===0?0:0.5;
+          for(let c2=0;c2<cols;c2++){ctx.beginPath();ctx.arc(x+w*0.4*(c2+0.5+off)/(cols+off),y+h*7/13*(r+0.5)/5,h*0.04,0,Math.PI*2);ctx.fill();}} }
+      break;
+    default:
+      fill('#e8e8e8'); ctx.fillStyle='#333'; ctx.font=`bold ${h*0.38}px monospace`;
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(code,cx,cy);
+      break;
+  }
+  ctx.strokeStyle='rgba(0,0,0,0.3)'; ctx.lineWidth=0.5; ctx.strokeRect(x+0.25,y+0.25,w-0.5,h-0.5);
+  ctx.restore();
+}
+
+// Feature 7: better bear-off contrast for black checkers
+function drawBearOff() {
+  const g=ctx.createLinearGradient(BEAR_X,0,BEAR_X+BEAR_W,0);
+  g.addColorStop(0,C.woodDark); g.addColorStop(.3,C.bearBg); g.addColorStop(1,C.bearBg);
+  ctx.fillStyle=g; ctx.fillRect(BEAR_X,IY,BEAR_W,IH);
+
+  // Lighter background for black checkers area (top half of tray)
+  const lightG = ctx.createLinearGradient(BEAR_X, IY, BEAR_X+BEAR_W, IY+IH/2);
+  lightG.addColorStop(0, '#3a2510');
+  lightG.addColorStop(1, '#4a3020');
+  ctx.fillStyle = lightG;
+  ctx.fillRect(BEAR_X+2, IY+2, BEAR_W-4, IH/2-2);
+
+  ctx.strokeStyle=C.woodDark; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(BEAR_X,IY); ctx.lineTo(BEAR_X,IY+IH); ctx.stroke();
+  const mx=BEAR_X+BEAR_W/2;
+  ctx.strokeStyle=C.bearLine; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(mx,IY+8); ctx.lineTo(mx,IY+IH-8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(BEAR_X+8,IY+IH/2); ctx.lineTo(BEAR_X+BEAR_W-8,IY+IH/2); ctx.stroke();
+  // ── Score only in tray (flags+names now live in the board border strips) ──
+  const _tc = BEAR_X + BEAR_W/2;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#c0c4ff'; ctx.font='bold 28px Courier New';
+  ctx.fillText(gameScore.black, _tc, IY + IH*0.5 - 26);
+  ctx.fillStyle='#e0c890'; ctx.font='bold 28px Courier New';
+  ctx.fillText(gameScore.white, _tc, IY + IH*0.5 + 26);
+  ctx.textBaseline='alphabetic';
+
+  // Checker stacks — drawn after labels so they appear on top of flags
+  const mR=7, mG=17, tx=BEAR_X+BEAR_W/2;
+  for(let i=0;i<off.white;i++){
+    const cy=IY+IH-mR-4-i*mG;
+    ctx.beginPath(); ctx.arc(tx,cy,mR,0,Math.PI*2);
+    const gr=ctx.createRadialGradient(tx-2,cy-2,1,tx,cy,mR);
+    gr.addColorStop(0,C.wInner); gr.addColorStop(1,C.wEdge);
+    ctx.fillStyle=gr; ctx.fill(); ctx.strokeStyle=C.wEdge; ctx.lineWidth=1; ctx.stroke();
+  }
+  if(off.white>0){ctx.fillStyle=C.wBase;ctx.font='bold 10px Courier New';ctx.fillText(off.white,tx,IY+IH/2+14);}
+  for(let i=0;i<off.black;i++){
+    const cy=IY+mR+18+i*mG;
+    ctx.beginPath(); ctx.arc(tx,cy,mR,0,Math.PI*2);
+    const gr=ctx.createRadialGradient(tx-2,cy-2,1,tx,cy,mR);
+    gr.addColorStop(0,C.bInner); gr.addColorStop(1,C.bEdge);
+    ctx.fillStyle=gr; ctx.fill(); ctx.strokeStyle=C.bInner; ctx.lineWidth=1; ctx.stroke();
+  }
+  if(off.black>0){ctx.fillStyle='#e8e8ff';ctx.font='bold 10px Courier New';ctx.fillText(off.black,tx,IY+IH/2-4);}
+
+  drawDollarBill();
+}
+
+function drawMedallion() {
+  const cy=IY+IH/2, r=46;
+  for(const cx of [IX+HALF_W/2, IX+HALF_W+BAR_W+HALF_W/2]){
+    ctx.save(); ctx.strokeStyle=C.medallion; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,r*.55,0,Math.PI*2); ctx.stroke();
+    for(let a=0;a<Math.PI*2;a+=Math.PI/4){
+      ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*r*.55,cy+Math.sin(a)*r*.55);
+      ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawQuadrantLabels() {
+  ctx.font='10px Courier New'; ctx.fillStyle=C.labelDim; ctx.textAlign='center';
+  const mL=IX+HALF_W/2, mR=IX+HALF_W+BAR_W+HALF_W/2;
+  ctx.fillText("BLACK'S HOME (19–24)",  mR, IY+IH*.22);
+  ctx.fillText("BLACK'S OUTER (13–18)", mL, IY+IH*.22);
+  ctx.fillText("WHITE'S OUTER (7–12)",  mL, IY+IH*.80);
+  ctx.fillText("WHITE'S HOME (1–6)",    mR, IY+IH*.80);
+}
+
+function drawPointLabels() {
+  ctx.font='bold 11px Courier New'; ctx.textAlign='center';
+  for(let n=1;n<=24;n++){
+    ctx.fillStyle=n%2===1?C.ptGoldHi:C.ptRedHi;
+    if(n<=12) ctx.fillText(n,ptCx(n),BOT_BASE+13);
+    else      ctx.fillText(n,ptCx(n),TOP_BASE-5);
+  }
+}
+
+function drawBoard() {
+  drawWoodFrame();
+  ctx.fillStyle=C.felt; ctx.fillRect(IX,IY,PLAY_W,IH);
+  const fv=ctx.createRadialGradient(IX+PLAY_W/2,IY+IH/2,IH*.1,IX+PLAY_W/2,IY+IH/2,IH*.8);
+  fv.addColorStop(0,'rgba(255,255,255,0.04)'); fv.addColorStop(1,'rgba(0,0,0,0.25)');
+  ctx.fillStyle=fv; ctx.fillRect(IX,IY,PLAY_W,IH);
+  drawMedallion(); drawPoints(); drawBar(); drawBearOff();
+  drawQuadrantLabels(); drawPointLabels();
+  drawAllHighlights(); drawAllCheckers(); drawMovableGlows(); drawSelectionRing();
+  drawDiceArea(); drawClock();
+
+  // Feature 1: draw physics dice on top of board
+  if (phase === 'rolling' || phase === 'rolled' || phase === 'opening_w_rolling' || phase === 'opening_b' || phase === 'opening_b_rolling') {
+    drawDicePhysics();
+  }
+
+  // Feature 6: draw animated checker on top of everything
+  if (checkerAnim && !checkerAnim.done) {
+    const p = checkerAnim.t / checkerAnim.duration;
+    const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+    const cx = checkerAnim.x + (checkerAnim.tx - checkerAnim.x) * ease;
+    const cy = checkerAnim.y + (checkerAnim.ty - checkerAnim.y) * ease;
+    ctx.save();
+    ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=12; ctx.shadowOffsetX=4; ctx.shadowOffsetY=4;
+    drawChecker(cx, cy, checkerAnim.color);
+    ctx.restore();
+  }
+  // Blot animation — hit checker slides to bar
+  if (blotAnim) {
+    const p = blotAnim.t / blotAnim.duration;
+    const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+    const bx = blotAnim.x + (blotAnim.tx - blotAnim.x) * ease;
+    const by = blotAnim.y + (blotAnim.ty - blotAnim.y) * ease;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.5, 1 - p*0.3);
+    ctx.shadowColor='rgba(255,80,0,0.5)'; ctx.shadowBlur=14; ctx.shadowOffsetX=0; ctx.shadowOffsetY=0;
+    drawChecker(bx, by, blotAnim.color);
+    ctx.restore();
+  }
+
+  if(statusTimer>0&&statusMsg){
+    const gcy=(TOP_BASE+PT_H+BOT_BASE-PT_H)/2, rcx=IX+HALF_W+BAR_W+HALF_W/2;
+    ctx.globalAlpha=Math.min(1,statusTimer/30);
+    ctx.fillStyle='#ffdd66'; ctx.font='bold 12px Courier New'; ctx.textAlign='center';
+    ctx.fillText(statusMsg,rcx,gcy+5); ctx.globalAlpha=1;
+  }
+
+  if(phase==='gameover'){
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(IX,IY,PLAY_W,IH);
+    const gcx=IX+PLAY_W/2, gcy=IY+IH/2;
+    ctx.fillStyle='rgba(20,15,5,0.92)'; roundRect(gcx-185,gcy-65,370,155,12); ctx.fill();
+    ctx.strokeStyle=C.ptGoldHi; ctx.lineWidth=2; roundRect(gcx-185,gcy-65,370,155,12); ctx.stroke();
+    ctx.fillStyle=C.ptGoldHi; ctx.font='bold 28px Courier New'; ctx.textAlign='center';
+    ctx.fillText(statusMsg,gcx,gcy-22);
+    // White player row
+    if (players.white.flag) drawCanvasFlag(players.white.flag, gcx-177, gcy+2, 38, 25);
+    const _wNameX = players.white.flag ? gcx-130 : gcx-170;
+    ctx.font='bold 16px Courier New'; ctx.textAlign='left';
+    ctx.fillStyle=C.wBase; ctx.fillText(players.white.name.substring(0,12)+' (white)', _wNameX, gcy+18);
+    ctx.font='bold 22px Courier New';
+    ctx.fillText(gameScore.white, gcx+115, gcy+18);
+    // Black player row
+    if (players.black.flag) drawCanvasFlag(players.black.flag, gcx-177, gcy+38, 38, 25);
+    const _bNameX = players.black.flag ? gcx-130 : gcx-170;
+    ctx.font='bold 16px Courier New'; ctx.textAlign='left';
+    ctx.fillStyle='#c8ccff'; ctx.fillText(players.black.name.substring(0,12)+' (black)', _bNameX, gcy+54);
+    ctx.font='bold 22px Courier New';
+    ctx.fillText(gameScore.black, gcx+115, gcy+54);
+    ctx.font='11px Courier New'; ctx.fillStyle=C.labelDim; ctx.textAlign='center';
+    ctx.fillText('Press  R  to play again',gcx,gcy+80);
+  }
+
+  ctx.fillStyle=C.labelDim; ctx.font='bold 12px Courier New'; ctx.textAlign='left';
+  ctx.fillText('BACKGAMMON',BX+8,BY+14);
+  // ── Player flag + name in top/bottom border strips (above/below tray) ──
+  const _brdFW=26, _brdFH=17;
+  // Use the right portion of the bottom/top borders (over the tray area)
+  const _brdRight = BX + BW - 4; // right edge of board, 4px padding
+  const _brdNameX = _brdRight - _brdFW - 4; // name right-aligns here, flag to its right
+  // Black — top border: name left, flag right (consistent)
+  ctx.fillStyle='#a8aae8'; ctx.font='bold 13px Courier New'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText(players.black.name.substring(0,7), _brdNameX - 2, BY+9);
+  drawCanvasFlag(players.black.flag, _brdRight - _brdFW, BY+1, _brdFW, _brdFH);
+  // White — bottom border: name left, flag right (consistent)
+  ctx.fillStyle='#d0b880'; ctx.font='bold 13px Courier New'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText(players.white.name.substring(0,7), _brdNameX - 2, IY+IH+9);
+  drawCanvasFlag(players.white.flag, _brdRight - _brdFW, IY+IH+1, _brdFW, _brdFH);
+  ctx.textBaseline='alphabetic';
+}
+
+// ── Game loop ─────────────────────────────────────────────────
+function update() {
+  time++;
+  if(statusTimer>0) statusTimer--;
+  // Always update visual effects (even during auto-skip pauses)
+  if (fireworks.length > 0 || fireworkBurstQueue.length > 0) updateFireworks();
+  if (billSafeAnim && !billSafeAnim.done) updateBillSafeAnim();
+  if(skipTimer>0){ skipTimer--; if(skipTimer===0) endTurn(); return; }
+
+  // Blot animation — hit checker sliding to bar
+  if (blotAnim) {
+    blotAnim.t++;
+    if (blotAnim.t >= blotAnim.duration) blotAnim = null;
+  }
+
+  // Feature 6: checker animation — supports N-leg chains via remainingPath
+  if (checkerAnim && !checkerAnim.done) {
+    checkerAnim.t++;
+    if (checkerAnim.t >= checkerAnim.duration) {
+      const fp = checkerAnim.fromPt, tp = checkerAnim.toPt;
+      const remaining = checkerAnim.remainingPath || [];
+      checkerAnim = null;
+      executeMoveFinal(fp, tp, remaining.length > 0);
+      if (remaining.length > 0) executeChainMove(tp, remaining);
+    }
+  }
+
+  // Auto-skip if bar entries are fully blocked (all 6 entry points covered by opponent)
+  if (phase === 'idle' && skipTimer === 0 && allBarEntriesBlocked()) {
+    const nm = (currentPlayer === 'white' ? 'White' : 'Black') + ' bar fully blocked — turn skipped';
+    statusMsg = nm; statusTimer = 90; skipTimer = 90;
+    playDisappointment();
+  }
+
+  // Chess clock — 5-minute turn timer, visible after first 30 seconds
+  if ((phase==='idle'||phase==='rolling'||phase==='rolled') && turnTimer > 0) {
+    turnTimer--;
+    if (turnTimer === 0 && !checkerAnim) {
+      const opp = currentPlayer==='white'?'black':'white';
+      gameScore[opp] += 2; // forfeit = gammon (2 pts)
+      phase='gameover'; statusMsg=(currentPlayer==='white'?'WHITE':'BLACK')+' FORFEITS!';
+      statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(opp);
+      turnTimer=-1;
+    }
+  }
+
+  // Opening roll — white's die settles
+  if (phase === 'opening_w_rolling') {
+    if (updateDicePhysics()) {
+      phase = 'opening_b';
+      statusMsg = (players.white.name||'White') + ' rolled ' + openingDice[0] + '!';
+      statusTimer = 90;
+    }
+  }
+  // Opening roll — black's die settles, resolve winner
+  if (phase === 'opening_b_rolling') {
+    if (updateDicePhysics()) {
+      const wd = openingDice[0], bd = openingDice[1];
+      if (wd === bd) {
+        statusMsg = 'TIE  —  Roll Again!'; statusTimer = 140;
+        dicePhysics = []; dice = []; movesLeft = [];
+        phase = 'opening';
+      } else {
+        currentPlayer = wd > bd ? 'white' : 'black';
+        dice = [wd, bd]; movesLeft = [wd, bd];
+        phase = 'rolled'; turnTimer = TURN_FRAMES;
+        const winner = wd > bd ? (players.white.name||'White') : (players.black.name||'Black');
+        statusMsg = winner + ' goes first!'; statusTimer = 130;
+        if (!hasAnyLegalMove()) {
+          statusMsg='No legal moves — turn passed'; statusTimer=100; skipTimer=100;
+          playDisappointment();
+        }
+      }
+    }
+  }
+
+  // Feature 1: physics dice rolling → rolled transition
+  if (phase === 'rolling') {
+    if (updateDicePhysics()) {
+      phase = 'rolled';
+      if (!hasAnyLegalMove()) {
+        statusMsg='No legal moves — turn passed'; statusTimer=100; skipTimer=100;
+        playDisappointment();
+      }
+    }
+  }
+}
+
+function loop(){ update(); ctx.clearRect(0,0,CW,CH); if(phase==='title') drawTitleScreen(); else drawBoard(); if(fireworks.length>0||fireworkBurstQueue.length>0) drawFireworks(); if(billSafeAnim) drawBillSafeAnim(); updateRollButton(); requestAnimationFrame(loop); }
+
+// ── Input ─────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if(e.key==='r'||e.key==='R'){
+    if(phase==='title'){ initBoard(); phase='opening'; }
+    else if(phase==='gameover'){ initBoard(); phase='title'; }
+    else if(phase==='opening'){ rollOpeningWhite(); }
+    else if(phase==='opening_b'){ rollOpeningBlack(); }
+    else { rollDice(); }
+  }
+  if(e.key==='Escape'){ selectedPoint=null; highlights=[]; combinedHighlights=[]; }
+});
+
+// ── Shared board tap/click handler ────────────────────────────
+function handleBoardTap(clientX, clientY) {
+  if(phase==='title'){ initBoard(); phase='opening'; return; }
+  if(phase==='opening'){ rollOpeningWhite(); return; }
+  if(phase==='opening_b'){ rollOpeningBlack(); return; }
+  if(phase!=='rolled'||skipTimer>0) return;
+  if(checkerAnim && !checkerAnim.done) return;
+
+  const rect=canvas.getBoundingClientRect();
+  const mx=(clientX-rect.left)*(CW/rect.width);
+  const my=(clientY-rect.top)*(CH/rect.height);
+  const n=pointAt(mx,my);
+
+  if (selectedPoint !== null) {
+    let chainTarget = -1;
+    for (const cn of combinedHighlights) {
+      const dotCx = cn === 25 ? BEAR_X + BEAR_W/2 : ptCx(cn);
+      const dotCy = cn === 25 ? (currentPlayer==='white'?IY+IH*.75:IY+IH*.25) : checkerCy(cn, points[cn].count);
+      const dotR = CHK_R * 0.9;
+      if (Math.sqrt((mx-dotCx)**2 + (my-dotCy)**2) <= dotR) { chainTarget = cn; break; }
+    }
+    if (chainTarget < 0 && n >= 0 && combinedHighlights.includes(n)) chainTarget = n;
+    if (chainTarget >= 0) {
+      const path = findChainPath(selectedPoint, chainTarget);
+      if (path) { executeChainMove(selectedPoint, path); return; }
+    }
+  }
+
+  if(selectedPoint!==null&&n>=0&&highlights.includes(n)){ executeMove(selectedPoint,n); return; }
+
+  const mustUseBar=bar[currentPlayer]>0;
+  if(mustUseBar&&n!==0){ selectedPoint=null; highlights=[]; combinedHighlights=[]; return; }
+
+  const hasOwn = n===0 ? bar[currentPlayer]>0
+    : n>=1&&n<=24 && points[n].color===currentPlayer && points[n].count>0;
+
+  if(hasOwn){
+    if(selectedPoint===n){ selectedPoint=null; highlights=[]; combinedHighlights=[]; }
+    else{
+      selectedPoint=n;
+      highlights=validDestinations(n);
+      combinedHighlights=validCombinedDestinations(n);
+    }
+  } else { selectedPoint=null; highlights=[]; combinedHighlights=[]; }
+}
+
+canvas.addEventListener('click', e => { handleBoardTap(e.clientX, e.clientY); });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault(); // suppress the 300ms delayed click that follows touch
+  const t = e.changedTouches[0];
+  handleBoardTap(t.clientX, t.clientY);
+}, { passive: false });
+
+// ── Roll button (mobile only — hidden on non-touch devices) ───
+const _rollBtn = document.getElementById('roll-btn');
+const _isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+if (!_isTouchDevice && _rollBtn) _rollBtn.style.display = 'none';
+
+function updateRollButton() {
+  if (!_rollBtn || !_isTouchDevice) return;
+  const show = phase==='idle' || phase==='opening' || phase==='opening_b'
+             || phase==='title' || phase==='gameover';
+  _rollBtn.style.display = show ? 'block' : 'none';
+  if (phase==='idle')                          _rollBtn.textContent = '🎲  ROLL DICE';
+  else if (phase==='opening')                  _rollBtn.textContent = '🎲  ROLL YOUR DIE';
+  else if (phase==='opening_b')                _rollBtn.textContent = '🎲  ROLL YOUR DIE';
+  else if (phase==='title' || phase==='gameover') _rollBtn.textContent = '▶  START';
+}
+
+_rollBtn && _rollBtn.addEventListener('click', () => {
+  if(phase==='title'){ initBoard(); phase='opening'; }
+  else if(phase==='gameover'){ initBoard(); phase='title'; }
+  else if(phase==='opening'){ rollOpeningWhite(); }
+  else if(phase==='opening_b'){ rollOpeningBlack(); }
+  else if(phase==='idle'){ rollDice(); }
+});
+
+initBoard();
+// loop() is started by the setup form submit handler
+</script>
+</body>
+</html>
