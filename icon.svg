@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="90" fill="#0d1117"/>
+  <!-- Gold outer border -->
+  <rect x="18" y="18" width="476" height="476" rx="78" fill="none" stroke="#c9983a" stroke-width="9"/>
+
+  <!-- Board surface -->
+  <rect x="48" y="70" width="416" height="372" rx="10" fill="#2a1a08"/>
+  <!-- Centre bar -->
+  <rect x="240" y="70" width="32" height="372" fill="#0d1117"/>
+
+  <!-- Top triangles — left half -->
+  <polygon points="48,70  94,70  71,195"  fill="#8B3030"/>
+  <polygon points="94,70 140,70 117,195"  fill="#c9983a"/>
+  <polygon points="140,70 186,70 163,195" fill="#8B3030"/>
+  <polygon points="186,70 232,70 209,195" fill="#c9983a"/>
+  <!-- Top triangles — right half -->
+  <polygon points="272,70 318,70 295,195" fill="#8B3030"/>
+  <polygon points="318,70 364,70 341,195" fill="#c9983a"/>
+  <polygon points="364,70 410,70 387,195" fill="#8B3030"/>
+  <polygon points="410,70 456,70 433,195" fill="#c9983a"/>
+
+  <!-- Bottom triangles — left half -->
+  <polygon points="48,442  94,442  71,317"  fill="#c9983a"/>
+  <polygon points="94,442 140,442 117,317"  fill="#8B3030"/>
+  <polygon points="140,442 186,442 163,317" fill="#c9983a"/>
+  <polygon points="186,442 232,442 209,317" fill="#8B3030"/>
+  <!-- Bottom triangles — right half -->
+  <polygon points="272,442 318,442 295,317" fill="#c9983a"/>
+  <polygon points="318,442 364,442 341,317" fill="#8B3030"/>
+  <polygon points="364,442 410,442 387,317" fill="#c9983a"/>
+  <polygon points="410,442 456,442 433,317" fill="#8B3030"/>
+
+  <!-- White checkers (bottom-left point, stacked) -->
+  <circle cx="71"  cy="422" r="20" fill="#f0e8d0" stroke="#b09050" stroke-width="3"/>
+  <circle cx="71"  cy="398" r="20" fill="#f0e8d0" stroke="#b09050" stroke-width="3"/>
+  <circle cx="71"  cy="374" r="20" fill="#f0e8d0" stroke="#b09050" stroke-width="3"/>
+
+  <!-- Black checkers (top-right point, stacked) -->
+  <circle cx="433" cy="90"  r="20" fill="#1a1a3a" stroke="#6060c0" stroke-width="3"/>
+  <circle cx="433" cy="114" r="20" fill="#1a1a3a" stroke="#6060c0" stroke-width="3"/>
+  <circle cx="433" cy="138" r="20" fill="#1a1a3a" stroke="#6060c0" stroke-width="3"/>
+
+  <!-- Dice on the bar area -->
+  <rect x="245" y="195" width="22" height="22" rx="4" fill="#fdf6e3" stroke="#b09050" stroke-width="2"/>
+  <circle cx="256" cy="206" r="3" fill="#1a0a00"/>
+
+  <rect x="245" y="230" width="22" height="22" rx="4" fill="#fdf6e3" stroke="#b09050" stroke-width="2"/>
+  <circle cx="251" cy="236" r="2.5" fill="#1a0a00"/>
+  <circle cx="261" cy="246" r="2.5" fill="#1a0a00"/>
+</svg>
