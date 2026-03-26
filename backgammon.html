@@ -22,23 +22,14 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      min-height: 100vh;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
     }
     canvas {
       display: none;
-      /*
-       * Scale to fit whichever dimension is the bottleneck.
-       * 920/578 ≈ 1.591 is the board aspect ratio.
-       * min() picks the smallest of:
-       *   - 920px   (natural desktop size, never upscale)
-       *   - 100vw   (fit viewport width)
-       *   - calc(100vh * 920/578)  (fit viewport height, keeping ratio)
-       * height: auto then follows from the computed width.
-       */
-      width: min(920px, 100vw, calc(100vh * 920 / 578));
-      height: auto;
-      aspect-ratio: 920 / 578;
       touch-action: none;
+      /* width/height set dynamically by resizeCanvas() in JS */
     }
     #subtitle {
       color: #8a7a5a;
@@ -280,6 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
     players.black = {name:bn, flag:document.getElementById('black-country').value};
     document.getElementById('setup-overlay').style.display = 'none';
     document.getElementById('c').style.display = 'block';
+    resizeCanvas();
     document.getElementById('subtitle').textContent = wn + ' (White)  vs  ' + bn + ' (Black)';
     // Pre-warm AudioContext on this user gesture so first dice roll plays instantly
     if (!_ac) _ac = new (window.AudioContext||window.webkitAudioContext)();
@@ -2308,6 +2300,16 @@ _rollBtn && _rollBtn.addEventListener('click', () => {
 
 initBoard();
 // loop() is started by the setup form submit handler
+
+// ── Canvas scaling — fits board into any screen size ──────────
+function resizeCanvas() {
+  const scale = Math.min(window.innerWidth / CW, window.innerHeight / CH, 1);
+  canvas.style.width  = Math.round(CW * scale) + 'px';
+  canvas.style.height = Math.round(CH * scale) + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+// orientationchange fires before dimensions update — small delay fixes it
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 150));
 
 // ── PWA: register service worker for offline play ─────────────
 if ('serviceWorker' in navigator) {
