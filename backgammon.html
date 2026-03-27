@@ -176,7 +176,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.4-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.5-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -310,7 +310,7 @@ let roomCode = null;
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v2.4-MP';
+const VERSION    = 'v2.5-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -367,6 +367,7 @@ function _listenForState() {
       movesLeft   = toArr(data.movesLeft);
       gameScore.white=data.gameScore.white; gameScore.black=data.gameScore.black;
       openingDice = toArr(data.openingDice);
+      if (data.turnTimer !== undefined) { turnTimer = data.turnTimer; _lastTickSec = -1; }
       selectedPoint=null; highlights=[]; combinedHighlights=[]; checkerAnim=null; skipTimer=0;
       // Show static dice for remote events
       if (dice.length > 0 && (phase==='rolled'||phase==='idle')) _showStaticDice(dice);
@@ -405,7 +406,8 @@ function pushState() {
     off: {white:off.white, black:off.black},
     dice: [...dice], movesLeft: [...movesLeft],
     gameScore: {white:gameScore.white, black:gameScore.black},
-    openingDice: [...openingDice]
+    openingDice: [...openingDice],
+    turnTimer: turnTimer
   });
 }
 
@@ -501,6 +503,7 @@ let fireworks = [], fireworkBurstQueue = [];
 let billSafeAnim = null; // {fromX,fromY,safeX,safeY,t,duration,done}
 // Chess clock (frames at ~60fps)
 let turnTimer = -1;
+let _lastTickSec = -1;
 const TURN_FRAMES = 3900; // 65 seconds at ~60fps (60s + 5s buffer) — clock appears after first 30s
 
 // ── Audio ─────────────────────────────────────────────────────
@@ -612,6 +615,18 @@ function playBlotHit() {
     sizzleG.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
     sizzleSrc.connect(hp); hp.connect(sizzleG); sizzleG.connect(a.destination);
     sizzleSrc.start(t);
+  } catch(e) {}
+}
+function playClockTick() {
+  try {
+    const a = ac();
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine';
+    o.frequency.value = 1050;
+    g.gain.setValueAtTime(0.18, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.05);
+    o.connect(g); g.connect(a.destination);
+    o.start(a.currentTime); o.stop(a.currentTime + 0.06);
   } catch(e) {}
 }
 function playBearOff() {
@@ -1555,7 +1570,7 @@ function drawDiceArea() {
         ctx.fillStyle='#f0dda0'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
         ctx.fillText(_wn, _cx, gapCy - 6);
       }
-      if (isMyTurn()) {
+      if (isMyTurn() && Math.floor(time/30)%2===0) {
         ctx.fillStyle=C.labelDim; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
         ctx.fillText('Press  R  to roll your dice', _cx, gapCy + 22);
       }
@@ -1572,7 +1587,7 @@ function drawDiceArea() {
         ctx.fillStyle='#c0c4ff'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
         ctx.fillText(_bn, _cx, gapCy - 6);
       }
-      if (isMyTurn()) {
+      if (isMyTurn() && Math.floor(time/30)%2===0) {
         ctx.fillStyle=C.labelDim; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
         ctx.fillText('Press  R  to roll your dice', _cx, gapCy + 22);
       }
@@ -1596,7 +1611,7 @@ function drawDiceArea() {
   const _colorWord = isW ? 'white' : 'black';
   ctx.fillText(_pn.name.substring(0,12) + ' plays ' + _colorWord, bX+bW/2, bY+18);
 
-  if (phase==='idle' && isMyTurn()) {
+  if (phase==='idle' && isMyTurn() && Math.floor(time/30)%2===0) {
     ctx.fillStyle=C.labelDim; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
     ctx.fillText('Press  R  to roll your dice', IX+HALF_W/2, gapCy+6);
   } else if (phase==='rolled' && movesLeft.length > 0) {
@@ -1609,6 +1624,7 @@ function drawDiceArea() {
 // ── Chess clock display ───────────────────────────────────────
 function drawClock() {
   if (phase!=='idle'&&phase!=='rolling'&&phase!=='rolled') return;
+  if (!isMyTurn()) return;
   if (turnTimer<=0) return;
   // Only reveal after 30 seconds have elapsed (< 4:30 remaining)
   if (turnTimer > TURN_FRAMES - 1800) return;
@@ -2456,6 +2472,11 @@ function update(dt) {
       statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(opp);
       turnTimer=-1; pushState();
     }
+    // Ticking sound in last 20 seconds — only for the active player
+    if (isMyTurn() && turnTimer > 0 && turnTimer <= 1200) {
+      const sec = Math.ceil(turnTimer / 60);
+      if (sec !== _lastTickSec) { _lastTickSec = sec; playClockTick(); }
+    }
   }
 
   // Opening roll — white's die settles
@@ -2538,6 +2559,7 @@ function handleBoardTap(clientX, clientY) {
   if(phase==='opening_b'&& isMyTurn()){ rollOpeningBlack(); return; }
   if((phase==='opening'||phase==='opening_b') && !isMyTurn()) return;
   if(!isMyTurn()) return;
+  if(phase==='idle' && skipTimer===0){ rollDice(); return; }
   if(phase!=='rolled'||skipTimer>0) return;
   if(checkerAnim && !checkerAnim.done) return;
 
