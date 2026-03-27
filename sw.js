@@ -1,7 +1,6 @@
-// Service Worker — caches all game files for offline play
-const CACHE = 'backgammon-v3';
+// Service Worker — caches assets for offline play
+const CACHE = 'backgammon-v4';
 const ASSETS = [
-  'backgammon.html',
   'manifest.json',
   'icon.svg',
   'Dice rolling 1.m4a',
@@ -18,7 +17,7 @@ const ASSETS = [
   'drag man 8.m4a'
 ];
 
-// Install: cache everything
+// Install: cache assets (NOT the HTML — always fetch that fresh)
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(cache => cache.addAll(ASSETS))
@@ -36,8 +35,16 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
-// Fetch: serve from cache, fall back to network
+// Fetch: network-first for HTML (always get latest), cache-first for assets
 self.addEventListener('fetch', e => {
+  if (e.request.url.endsWith('.html')) {
+    // Always fetch HTML fresh — fall back to cache only if offline
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+  // Assets: serve from cache, fall back to network
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
