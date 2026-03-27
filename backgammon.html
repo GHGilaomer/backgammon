@@ -307,7 +307,9 @@ let _fbDb = null, _fbRoom = null;
 let myRole = null;   // 'white' | 'black' — null until game starts
 let roomCode = null;
 let _applyingRemote = false;
-const _myId = Math.random().toString(36).slice(2, 10); // unique client ID
+const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
+let   _sessionId = '';   // set by White on create; Black reads from first state push
+const VERSION    = 'v2.2-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -336,8 +338,13 @@ function _launchGame() {
 function _listenForState() {
   _fbRoom.child('state').on('value', snap => {
     const data = snap.val();
-    if (!data || data.sender === _myId) return; // skip own pushes
-    // Black: first state push from White launches the game
+    if (!data) return;
+    if (data.sender === _myId) return; // skip own pushes
+    // Black: learn the session ID from the first legitimate state push
+    if (myRole === 'black' && !_sessionId && data.sessionId) _sessionId = data.sessionId;
+    // Reject stale state from a previous game
+    if (_sessionId && data.sessionId && data.sessionId !== _sessionId) return;
+    // Black: first push from White launches the game
     if (myRole === 'black' && document.getElementById('setup-overlay').style.display !== 'none') {
       _launchGame();
     }
@@ -347,12 +354,12 @@ function _listenForState() {
     if (data.points) data.points.forEach((p,i) => { points[i].color=p.color; points[i].count=p.count; });
     bar.white=data.bar.white; bar.black=data.bar.black;
     off.white=data.off.white; off.black=data.off.black;
-    dice       = data.dice      || [];
-    movesLeft  = data.movesLeft || [];
+    dice        = data.dice       || [];
+    movesLeft   = data.movesLeft  || [];
     gameScore.white=data.gameScore.white; gameScore.black=data.gameScore.black;
     openingDice = data.openingDice || [];
     selectedPoint=null; highlights=[]; combinedHighlights=[];
-    // Show static dice for remote roll (no physics animation needed)
+    // Show static dice for remote events
     if (dice.length > 0 && (phase==='rolled'||phase==='idle')) _showStaticDice(dice);
     else if (phase === 'opening_b' && openingDice[0]) _showStaticDice([openingDice[0]]);
     else if (phase !== 'rolling' && phase !== 'opening_w_rolling' && phase !== 'opening_b_rolling') dicePhysics = [];
@@ -372,7 +379,7 @@ function _showStaticDice(vals) {
 function pushState() {
   if (!_fbRoom || _applyingRemote) return;
   _fbRoom.child('state').set({
-    sender: _myId, phase, currentPlayer,
+    sender: _myId, sessionId: _sessionId, phase, currentPlayer,
     points: points.map(p => ({color:p.color||null, count:p.count})),
     bar: {white:bar.white, black:bar.black},
     off: {white:off.white, black:off.black},
@@ -401,25 +408,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const flag = document.getElementById('my-country').value;
     showErr('');
     _fbInit();
-    roomCode = _genCode();
-    _fbRoom  = _fbDb.ref('rooms/' + roomCode);
-    myRole   = 'white';
+    roomCode   = _genCode();
+    _sessionId = Math.random().toString(36).slice(2, 10); // fresh session ID
+    _fbRoom    = _fbDb.ref('rooms/' + roomCode);
+    myRole     = 'white';
     players.white = {name, flag};
     players.black = {name:'...', flag:''};
-    _fbRoom.child('players/white').set({name, flag});
+    // Wipe any stale data from a previous game on this code, then write player
+    _fbRoom.remove().then(() => _fbRoom.child('players/white').set({name, flag}));
     // Show waiting room
     document.getElementById('lobby-section').style.display = 'none';
     document.getElementById('room-code-display').textContent = roomCode;
     document.getElementById('waiting-room').style.display = 'block';
-    // Wait for Black to join
+    // Wait for Black to join (guard against firing twice)
+    let _joined = false;
     _fbRoom.child('players/black').on('value', snap => {
       const bl = snap.val();
-      if (!bl || !bl.name || bl.name === '...') return;
-      _fbRoom.child('players/black').off('value'); // stop listening for join
+      if (!bl || !bl.name || bl.name === '...' || _joined) return;
+      _joined = true;
+      _fbRoom.child('players/black').off('value');
       players.black = {name: bl.name, flag: bl.flag||''};
       _launchGame();
       _listenForState();
-      pushState(); // White pushes initial board state
+      pushState(); // White pushes initial board state to start the game
     });
   });
 
@@ -2345,6 +2356,8 @@ function drawBoard() {
 
   ctx.fillStyle=C.labelDim; ctx.font='bold 12px Courier New'; ctx.textAlign='left';
   ctx.fillText('BACKGAMMON',BX+8,BY+14);
+  ctx.font='9px Courier New'; ctx.fillStyle='rgba(180,140,60,0.5)';
+  ctx.fillText(VERSION, BX+8, BY+14+11);
   // ── Player flag + name in top/bottom border strips (above/below tray) ──
   const _brdFW=26, _brdFH=17;
   // Use the right portion of the bottom/top borders (over the tray area)
