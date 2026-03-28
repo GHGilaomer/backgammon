@@ -176,7 +176,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.9-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v3.0-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -310,7 +310,7 @@ let roomCode = null;
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v2.9-MP';
+const VERSION    = 'v3.0-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -351,6 +351,7 @@ function _listenForState() {
     }
     _applyingRemote = true;
     try {
+      const prevPhase = phase;
       phase         = data.phase;
       currentPlayer = data.currentPlayer;
       // Firebase may convert arrays to {0:{},1:{},...} objects — handle both
@@ -369,17 +370,66 @@ function _listenForState() {
       openingDice = toArr(data.openingDice);
       if (data.turnTimer !== undefined) { turnTimer = data.turnTimer; _lastTickSec = -1; }
       selectedPoint=null; highlights=[]; combinedHighlights=[]; checkerAnim=null; skipTimer=0;
-      // Show static dice for remote events
-      if (dice.length > 0 && (phase==='rolled'||phase==='idle')) _showStaticDice(dice);
-      else if (phase === 'opening_b' && openingDice[0]) _showStaticDice([openingDice[0]]);
-      else if (phase !== 'rolling' && phase !== 'opening_w_rolling' && phase !== 'opening_b_rolling') dicePhysics = [];
+
+      // ── Dice display ──────────────────────────────────────────────
+      if (phase === 'rolling' && data.diceInitState) {
+        // Mirror the rolling animation — reconstruct physics from sender's initial state
+        const leftMinX = IX + DIE_SZ/2 + 2, leftMaxX = BAR_X - DIE_SZ/2 - 2;
+        const rightMinX = BAR_X + BAR_W + DIE_SZ/2 + 2, rightMaxX = BEAR_X - DIE_SZ/2 - 2;
+        const minY = IY + DIE_SZ/2 + 2, maxY = IY + IH - DIE_SZ/2 - 2;
+        const initArr = Array.isArray(data.diceInitState)
+          ? data.diceInitState
+          : Object.values(data.diceInitState);
+        dicePhysics = initArr.map(d => {
+          const isLeft = d.half === 'left';
+          return {
+            x: d.x, y: d.y, vx: d.vx, vy: d.vy,
+            rotation: d.rotation, angularVel: d.angularVel,
+            value: d.value, stopped: false, bounceCount: 0, frames: 0,
+            half: d.half,
+            minX: isLeft ? leftMinX : rightMinX,
+            maxX: isLeft ? leftMaxX : rightMaxX,
+            minY, maxY
+          };
+        });
+      } else if (dice.length > 0 && (phase==='rolled'||phase==='idle')) {
+        const positions = data.dicePositions
+          ? (Array.isArray(data.dicePositions) ? data.dicePositions : Object.values(data.dicePositions))
+          : null;
+        _showStaticDice(dice, positions);
+      } else if (phase === 'opening_b' && openingDice[0]) {
+        _showStaticDice([openingDice[0]]);
+      } else if (phase !== 'rolling' && phase !== 'opening_w_rolling' && phase !== 'opening_b_rolling') {
+        dicePhysics = [];
+      }
+
+      // ── Gameover animations (remote side) ─────────────────────────
+      if (phase === 'gameover' && prevPhase !== 'gameover' && data.winner) {
+        const loser = data.winner === 'white' ? 'black' : 'white';
+        const isGammon = off[loser] === 0;
+        statusMsg = (data.winner === 'white' ? 'WHITE' : 'BLACK') + (isGammon ? ' GAMMON!' : ' WINS!');
+        statusTimer = 99999;
+        playWin(); triggerFireworks(); triggerBillWinAnim(data.winner);
+      }
+
+      // ── Sound events ──────────────────────────────────────────────
+      if (data.soundEvent) {
+        switch (data.soundEvent) {
+          case 'roll':    playDiceRollFile(); break;
+          case 'blot':    playBlotHit();      break;
+          case 'checker': playCheckerPlace(); break;
+          case 'bearoff': playBearOff();      break;
+          // 'win' is handled by the gameover block above
+        }
+      }
+
     } finally {
       _applyingRemote = false; // always reset, even if an error occurred
     }
   });
 }
 
-function _showStaticDice(vals) {
+function _showStaticDice(vals, positions) {
   // Use right-half boundaries — same as initDicePhysics right side
   const minX = BAR_X + BAR_W + DIE_SZ/2 + 2;
   const maxX = BEAR_X - DIE_SZ/2 - 2;
@@ -390,16 +440,21 @@ function _showStaticDice(vals) {
   // Doubles (4 identical values) → show only 2 physical dice, same as local player sees
   const display = (vals.length === 4 && vals.every(v => v === vals[0])) ? [vals[0], vals[0]] : vals;
   const n = display.length;
-  dicePhysics = display.map((v, i) => ({
-    x: n === 1 ? cx : cx + (i % 2 === 0 ? -18 : 18),
-    y: cy,
-    vx:0, vy:0, rotation:0, angularVel:0,
-    value:v, stopped:true, bounceCount:99, half:1,
-    minX, maxX, minY, maxY
-  }));
+  dicePhysics = display.map((v, i) => {
+    const pos = positions && positions[i];
+    return {
+      x: pos ? pos.x : (n === 1 ? cx : cx + (i % 2 === 0 ? -18 : 18)),
+      y: pos ? pos.y : cy,
+      vx:0, vy:0, rotation:0, angularVel:0,
+      value:v, stopped:true, bounceCount:99, half:1,
+      minX, maxX, minY, maxY
+    };
+  });
 }
 
-function pushState() {
+function pushState(soundEvent = null) {
+  const se = soundEvent || _pendingSound || null;
+  _pendingSound = null;
   if (!_fbRoom || _applyingRemote) return;
   _fbRoom.child('state').set({
     sender: _myId, sessionId: _sessionId, phase, currentPlayer,
@@ -409,7 +464,17 @@ function pushState() {
     dice: [...dice], movesLeft: [...movesLeft],
     gameScore: {white:gameScore.white, black:gameScore.black},
     openingDice: [...openingDice],
-    turnTimer: turnTimer
+    turnTimer: turnTimer,
+    soundEvent: se,
+    winner: _gameWinner,
+    // Dice rolling init state — lets remote mirror the same animation
+    diceInitState: phase === 'rolling'
+      ? dicePhysics.map(d => ({x:d.x,y:d.y,vx:d.vx,vy:d.vy,rotation:d.rotation,angularVel:d.angularVel,value:d.value,half:d.half||1}))
+      : null,
+    // Dice final positions — remote snaps dice to same spots after roll settles
+    dicePositions: phase === 'rolled'
+      ? dicePhysics.map(d => ({x:d.x, y:d.y}))
+      : null
   });
 }
 
@@ -537,6 +602,8 @@ let billSafeAnim = null; // {fromX,fromY,safeX,safeY,t,duration,done}
 let turnTimer = -1;
 let _lastTickSec = -1;
 let _doublesFlashT = 0; // countdown frames for playable-doubles glow
+let _gameWinner   = null; // 'white'|'black' — set on win, read by remote for safe animation
+let _pendingSound = null; // sound event to include in the next pushState call
 const TURN_FRAMES = 3900; // 65 seconds at ~60fps (60s + 5s buffer) — clock appears after first 30s
 
 // ── Audio ─────────────────────────────────────────────────────
@@ -1042,6 +1109,7 @@ function rollDice() {
   phase     = 'rolling';
   initDicePhysics(d1, d2);
   playDiceRollFile();
+  pushState('roll'); // tell remote: start same dice animation now
 }
 
 function rollOpeningWhite() {
@@ -1365,7 +1433,7 @@ function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
   else { points[fromPt].count--; if (points[fromPt].count === 0) points[fromPt].color = null; }
 
   if (toPt === 25) {
-    off[cp]++; playBearOff();
+    off[cp]++; playBearOff(); _pendingSound = 'bearoff';
     selectedPoint = null; highlights = []; combinedHighlights = [];
     if (off[cp] === 15) {
       const opp2 = cp==='white'?'black':'white';
@@ -1373,7 +1441,7 @@ function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
       gameScore[cp] += isGammon ? 2 : 1;
       phase='gameover'; statusMsg=(cp==='white'?'WHITE':'BLACK')+(isGammon?' GAMMON!':' WINS!');
       statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(cp); turnTimer=-1;
-      pushState();
+      _gameWinner = cp; pushState('win');
     }
     else if (movesLeft.length === 0) { endTurn(); }
     else if (!skipLegalCheck && !hasAnyLegalMove()) { statusMsg='No further moves — turn passed'; statusTimer=90; skipTimer=90; playDisappointment(); }
@@ -1389,11 +1457,11 @@ function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
     blotAnim = { x:_bx, y:_by, tx:BAR_X+BAR_W/2, ty:_barY, color:opp, t:0, duration:22 };
     points[toPt].count = 0; points[toPt].color = null; bar[opp]++;
     statusMsg = (opp==='white'?'White':'Black')+' checker hit!'; statusTimer = 80;
-    hitBlot = true; playBlotHit();
+    hitBlot = true; playBlotHit(); _pendingSound = 'blot';
   }
   if (points[toPt].count === 0) points[toPt].color = cp;
   points[toPt].count++;
-  if (!hitBlot) playCheckerPlace();
+  if (!hitBlot) { playCheckerPlace(); _pendingSound = 'checker'; }
   selectedPoint = null; highlights = []; combinedHighlights = [];
 
   if (movesLeft.length === 0) { endTurn(); }
@@ -2536,7 +2604,7 @@ function update(dt) {
       gameScore[opp] += 2; // forfeit = gammon (2 pts)
       phase='gameover'; statusMsg=(currentPlayer==='white'?'WHITE':'BLACK')+' FORFEITS!';
       statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(opp);
-      turnTimer=-1; pushState();
+      _gameWinner = opp; turnTimer=-1; pushState('win');
     }
     // Ticking sound in last 20 seconds — only for the active player
     if (isMyTurn() && turnTimer > 0 && turnTimer <= 1200) {
