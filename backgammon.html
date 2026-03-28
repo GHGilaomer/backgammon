@@ -176,7 +176,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.6-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.7-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -310,7 +310,7 @@ let roomCode = null;
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v2.6-MP';
+const VERSION    = 'v2.7-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -500,6 +500,23 @@ let dicePhysics = []; // [{x,y,vx,vy,rotation,angularVel,value,stopped,bounceCou
 // Feature 6: checker animation
 let checkerAnim = null; // {fromPt, toPt, x, y, tx, ty, color, t, duration, done}
 let blotAnim = null;   // {x, y, tx, ty, color, t, duration} — hit checker sliding to bar
+
+// ── Board flip for Black player ───────────────────────────────
+// ptLeft(n) = ptLeft(25-n) for all n∈[1,24], so x is identical for paired points.
+// Flipping Black's view only requires swapping the y row (top ↔ bottom).
+function vp(n) {
+  // Visual point: for Black, map game-point n to 25-n so their home board appears at bottom
+  return (myRole === 'black' && n >= 1 && n <= 24) ? 25 - n : n;
+}
+function barCy(playerColor, i) {
+  // Bar y position accounting for Black's flipped view
+  // White is normally at bottom (IY+IH*.75), Black at top (IY+IH*.25); swap for Black's view
+  const whitIsBottom = myRole !== 'black';
+  if ((whitIsBottom && playerColor === 'white') || (!whitIsBottom && playerColor === 'black')) {
+    return IY + IH * 0.75 - i * CHK_GAP;
+  }
+  return IY + IH * 0.25 + i * CHK_GAP;
+}
 let openingDice = []; // [whiteDie, blackDie] — used during opening roll phase
 
 // Fireworks
@@ -1164,17 +1181,18 @@ function pointAt(mx, my) {
     if (!pt.count) continue;
     const baseCx = ptCx(n);
     for (let i = 0; i < pt.count; i++) {
-      const cx = baseCx + checkerXOff(n, i);
-      const cy = checkerCy(n, i);
+      const cx = baseCx + checkerXOff(vp(n), i);
+      const cy = checkerCy(vp(n), i);
       if (Math.sqrt((mx-cx)**2 + (my-cy)**2) <= CHK_R + 2) return n;
     }
   }
 
   for (let n = 1; n <= 24; n++) {
     const x = ptLeft(n);
+    const vn = vp(n);
     if (mx < x || mx >= x + PT_W) continue;
-    if (n <= 12 && my >= BOT_BASE - PT_H && my <= BOT_BASE) return n;
-    if (n >= 13 && my >= TOP_BASE        && my <= TOP_BASE + PT_H) return n;
+    if (vn <= 12 && my >= BOT_BASE - PT_H && my <= BOT_BASE) return n;
+    if (vn >= 13 && my >= TOP_BASE        && my <= TOP_BASE + PT_H) return n;
   }
   return -1;
 }
@@ -1213,10 +1231,7 @@ function endTurn() {
 function topCheckerVisualPos(pt) {
   if (pt === 0) {
     const count = bar[currentPlayer];
-    return {
-      x: BAR_X + BAR_W/2,
-      y: currentPlayer === 'white' ? IY+IH*.75-(count-1)*CHK_GAP : IY+IH*.25+(count-1)*CHK_GAP
-    };
+    return { x: BAR_X + BAR_W/2, y: barCy(currentPlayer, count - 1) };
   }
   if (pt === 25) {
     const count = off[currentPlayer];
@@ -1225,7 +1240,7 @@ function topCheckerVisualPos(pt) {
   }
   const p = points[pt];
   const i = p.count - 1;
-  return { x: ptCx(pt) + checkerXOff(pt, i), y: checkerCy(pt, i) };
+  return { x: ptCx(pt) + checkerXOff(vp(pt), i), y: checkerCy(vp(pt), i) };
 }
 
 // Find the full path from fromPt to toPt using available movesLeft dice.
@@ -1296,11 +1311,11 @@ function approxDestPos(toPt, fromPt) {
     return { x: tx, y: currentPlayer === 'white' ? IY+IH-7-4-count*17 : IY+7+18+count*17 };
   }
   if (toPt === 0) {
-    return { x: BAR_X + BAR_W/2, y: currentPlayer === 'white' ? IY+IH*.25 : IY+IH*.75 };
+    return { x: BAR_X + BAR_W/2, y: barCy(currentPlayer, 0) };
   }
   const p = points[toPt];
   const newI = (p.color === currentPlayer || p.count === 0) ? p.count : 0;
-  return { x: ptCx(toPt) + checkerXOff(toPt, newI), y: checkerCy(toPt, newI) };
+  return { x: ptCx(toPt) + checkerXOff(vp(toPt), newI), y: checkerCy(vp(toPt), newI) };
 }
 
 // Feature 6: single-step move animation
@@ -1356,9 +1371,9 @@ function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
   let hitBlot = false;
   if (points[toPt].color === opp && points[toPt].count === 1) {
     // Capture blot visual position before removing from board
-    const _bx = ptCx(toPt) + checkerXOff(toPt, 0);
-    const _by = checkerCy(toPt, 0);
-    const _barY = opp === 'white' ? IY + IH*0.75 : IY + IH*0.25;
+    const _bx = ptCx(toPt) + checkerXOff(vp(toPt), 0);
+    const _by = checkerCy(vp(toPt), 0);
+    const _barY = barCy(opp, bar[opp]); // bar[opp] incremented below
     blotAnim = { x:_bx, y:_by, tx:BAR_X+BAR_W/2, ty:_barY, color:opp, t:0, duration:22 };
     points[toPt].count = 0; points[toPt].color = null; bar[opp]++;
     statusMsg = (opp==='white'?'White':'Black')+' checker hit!'; statusTimer = 80;
@@ -1443,7 +1458,7 @@ function drawPointCheckers(n) {
   for (let f = maxFloor; f >= 0; f--) {
     for (let i = 0; i < drawCount; i++) {
       if (Math.floor(i / MAX_PER_FLOOR) !== f) continue;
-      drawChecker(baseCx + checkerXOff(n, i), checkerCy(n, i), pt.color);
+      drawChecker(baseCx + checkerXOff(vp(n), i), checkerCy(vp(n), i), pt.color);
     }
   }
   // No count badge — visual stacking is clear enough
@@ -1451,8 +1466,8 @@ function drawPointCheckers(n) {
 
 function drawBarCheckers() {
   const bx = BAR_X + BAR_W / 2;
-  for (let i = 0; i < bar.white; i++) drawChecker(bx, IY + IH*.75 - i*CHK_GAP, 'white');
-  for (let i = 0; i < bar.black; i++) drawChecker(bx, IY + IH*.25 + i*CHK_GAP, 'black');
+  for (let i = 0; i < bar.white; i++) drawChecker(bx, barCy('white', i), 'white');
+  for (let i = 0; i < bar.black; i++) drawChecker(bx, barCy('black', i), 'black');
 }
 
 function drawAllCheckers() {
@@ -1472,6 +1487,7 @@ function drawPointHighlight(n, isHit, isCombined) {
     return;
   }
   const x = ptLeft(n);
+  const vn = vp(n);
   const pulse = .55 + .45 * Math.sin(time * .10);
   const glowCol  = isCombined ? '#00b4ff' : (isHit ? '#ff6e14' : '#00e060');
   const fillRgba = isCombined ? 'rgba(0,180,255,0.14)' : (isHit ? 'rgba(255,110,20,0.18)' : 'rgba(60,220,80,0.16)');
@@ -1479,8 +1495,8 @@ function drawPointHighlight(n, isHit, isCombined) {
 
   // Subtle fill
   ctx.beginPath();
-  if (n<=12) { ctx.moveTo(x,BOT_BASE); ctx.lineTo(x+PT_W,BOT_BASE); ctx.lineTo(x+PT_W/2,BOT_BASE-PT_H); }
-  else       { ctx.moveTo(x,TOP_BASE); ctx.lineTo(x+PT_W,TOP_BASE); ctx.lineTo(x+PT_W/2,TOP_BASE+PT_H); }
+  if (vn<=12) { ctx.moveTo(x,BOT_BASE); ctx.lineTo(x+PT_W,BOT_BASE); ctx.lineTo(x+PT_W/2,BOT_BASE-PT_H); }
+  else        { ctx.moveTo(x,TOP_BASE); ctx.lineTo(x+PT_W,TOP_BASE); ctx.lineTo(x+PT_W/2,TOP_BASE+PT_H); }
   ctx.closePath();
   ctx.fillStyle = fillRgba; ctx.fill();
 
@@ -1488,8 +1504,8 @@ function drawPointHighlight(n, isHit, isCombined) {
   ctx.save();
   ctx.shadowColor = glowCol; ctx.shadowBlur = 14;
   ctx.beginPath();
-  if (n<=12) { ctx.moveTo(x,BOT_BASE); ctx.lineTo(x+PT_W,BOT_BASE); ctx.lineTo(x+PT_W/2,BOT_BASE-PT_H); }
-  else       { ctx.moveTo(x,TOP_BASE); ctx.lineTo(x+PT_W,TOP_BASE); ctx.lineTo(x+PT_W/2,TOP_BASE+PT_H); }
+  if (vn<=12) { ctx.moveTo(x,BOT_BASE); ctx.lineTo(x+PT_W,BOT_BASE); ctx.lineTo(x+PT_W/2,BOT_BASE-PT_H); }
+  else        { ctx.moveTo(x,TOP_BASE); ctx.lineTo(x+PT_W,TOP_BASE); ctx.lineTo(x+PT_W/2,TOP_BASE+PT_H); }
   ctx.closePath();
   ctx.strokeStyle = stroRgba; ctx.lineWidth = 2.5; ctx.stroke();
   ctx.restore();
@@ -1524,8 +1540,7 @@ function drawMovableGlows() {
     // Only bar checkers can move when on bar
     if (validDestinations(0).length > 0) {
       const cnt = bar[currentPlayer];
-      const cy = currentPlayer === 'white' ? IY+IH*.75-(cnt-1)*CHK_GAP : IY+IH*.25+(cnt-1)*CHK_GAP;
-      drawGlow(BAR_X + BAR_W / 2, cy);
+      drawGlow(BAR_X + BAR_W / 2, barCy(currentPlayer, cnt - 1));
     }
     return;
   }
@@ -1534,7 +1549,7 @@ function drawMovableGlows() {
     if (pt.color !== currentPlayer || pt.count === 0) continue;
     if (validDestinations(n).length === 0 && validCombinedDestinations(n).length === 0) continue;
     const topI = pt.count - 1;
-    drawGlow(ptCx(n) + checkerXOff(n, topI), checkerCy(n, topI));
+    drawGlow(ptCx(n) + checkerXOff(vp(n), topI), checkerCy(vp(n), topI));
   }
 }
 
@@ -1547,12 +1562,12 @@ function drawSelectionRing() {
   if (selectedPoint === 0) {
     const count = bar[currentPlayer]; if (!count) return;
     cx = BAR_X + BAR_W / 2;
-    cy = currentPlayer === 'white' ? IY+IH*.75-(count-1)*CHK_GAP : IY+IH*.25+(count-1)*CHK_GAP;
+    cy = barCy(currentPlayer, count - 1);
   } else {
     const pt = points[selectedPoint]; if (!pt || pt.count === 0) return;
     const topI = pt.count - 1;
-    cx  = ptCx(selectedPoint) + checkerXOff(selectedPoint, topI);
-    cy  = checkerCy(selectedPoint, topI);
+    cx  = ptCx(selectedPoint) + checkerXOff(vp(selectedPoint), topI);
+    cy  = checkerCy(vp(selectedPoint), topI);
   }
   ctx.save();
   ctx.shadowColor = '#ffe040'; ctx.shadowBlur = 18;
@@ -2039,8 +2054,9 @@ function drawPoints() {
   for(let n=1;n<=24;n++){
     const x=ptLeft(n), odd=n%2===1;
     const fill=odd?C.ptGold:C.ptRed, hi=odd?C.ptGoldHi:C.ptRedHi;
-    if(n<=12) drawTriangle(x,BOT_BASE-PT_H,BOT_BASE,fill,hi);
-    else      drawTriangle(x,TOP_BASE+PT_H,TOP_BASE,fill,hi);
+    const vn=vp(n);
+    if(vn<=12) drawTriangle(x,BOT_BASE-PT_H,BOT_BASE,fill,hi);
+    else       drawTriangle(x,TOP_BASE+PT_H,TOP_BASE,fill,hi);
   }
 }
 
