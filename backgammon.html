@@ -176,7 +176,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.7-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v2.9-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -310,7 +310,7 @@ let roomCode = null;
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v2.7-MP';
+const VERSION    = 'v2.9-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -387,10 +387,12 @@ function _showStaticDice(vals) {
   const maxY = IY + IH - DIE_SZ/2 - 2;
   const cx = (minX + maxX) / 2;
   const cy = IY + IH / 2;
-  const n = vals.length;
-  dicePhysics = vals.map((v, i) => ({
+  // Doubles (4 identical values) → show only 2 physical dice, same as local player sees
+  const display = (vals.length === 4 && vals.every(v => v === vals[0])) ? [vals[0], vals[0]] : vals;
+  const n = display.length;
+  dicePhysics = display.map((v, i) => ({
     x: n === 1 ? cx : cx + (i % 2 === 0 ? -18 : 18),
-    y: n <= 2 ? cy : (i < 2 ? cy - 20 : cy + 20),
+    y: cy,
     vx:0, vy:0, rotation:0, angularVel:0,
     value:v, stopped:true, bounceCount:99, half:1,
     minX, maxX, minY, maxY
@@ -419,11 +421,20 @@ function isMyTurn() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const opts = COUNTRY_LIST.map(c=>`<option value="${c.c}">${c.f} ${c.n}</option>`).join('');
-  document.getElementById('my-country').innerHTML += opts;
+  const usa = COUNTRY_LIST.find(c => c.c === 'US');
+  const pinnedOpt = `<option value="${usa.c}">${usa.n} ${usa.f}</option><option disabled>──────────</option>`;
+  const allOpts = COUNTRY_LIST.map(c=>`<option value="${c.c}">${c.n} ${c.f}</option>`).join('');
+  document.getElementById('my-country').innerHTML += pinnedOpt + allOpts;
 
   const errEl = document.getElementById('mp-error');
   function showErr(msg) { errEl.textContent = msg; }
+
+  // Enter on name or country → Create Game
+  ['my-name', 'my-country'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('create-btn').click(); }
+    });
+  });
 
   document.getElementById('create-btn').addEventListener('click', () => {
     const name = document.getElementById('my-name').value.trim() || 'White';
@@ -525,6 +536,7 @@ let billSafeAnim = null; // {fromX,fromY,safeX,safeY,t,duration,done}
 // Chess clock (frames at ~60fps)
 let turnTimer = -1;
 let _lastTickSec = -1;
+let _doublesFlashT = 0; // countdown frames for playable-doubles glow
 const TURN_FRAMES = 3900; // 65 seconds at ~60fps (60s + 5s buffer) — clock appears after first 30s
 
 // ── Audio ─────────────────────────────────────────────────────
@@ -639,27 +651,7 @@ function playBlotHit() {
   } catch(e) {}
 }
 function playSafeDoorClose() {
-  try {
-    const a = ac(), t = a.currentTime;
-    // Heavy thud — low frequency slam
-    const o1 = a.createOscillator(), g1 = a.createGain();
-    o1.type = 'sine';
-    o1.frequency.setValueAtTime(160, t);
-    o1.frequency.exponentialRampToValueAtTime(55, t + 0.18);
-    g1.gain.setValueAtTime(0.7, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-    o1.connect(g1); g1.connect(a.destination); o1.start(t); o1.stop(t + 0.4);
-    // Metallic ring — mid clang
-    const o2 = a.createOscillator(), g2 = a.createGain();
-    o2.type = 'square';
-    o2.frequency.setValueAtTime(1100, t); o2.frequency.exponentialRampToValueAtTime(320, t + 0.1);
-    g2.gain.setValueAtTime(0.22, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-    o2.connect(g2); g2.connect(a.destination); o2.start(t); o2.stop(t + 0.25);
-    // Short rattle
-    const o3 = a.createOscillator(), g3 = a.createGain();
-    o3.type = 'sawtooth'; o3.frequency.value = 340;
-    g3.gain.setValueAtTime(0.1, t + 0.03); g3.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-    o3.connect(g3); g3.connect(a.destination); o3.start(t + 0.03); o3.stop(t + 0.15);
-  } catch(e) {}
+  try { new Audio('safe closed.m4a').play(); } catch(e) {}
 }
 function playClockTick() {
   try {
@@ -1018,6 +1010,26 @@ function drawDicePhysics() {
         ctx.restore();
       }
     }
+  }
+
+  // Golden glow for playable doubles
+  if (_doublesFlashT > 0 && dicePhysics.length >= 2) {
+    const fade = Math.min(1, _doublesFlashT / 20);
+    const pulse = 0.65 + 0.35 * Math.sin(time * 0.3);
+    const alpha = fade * pulse;
+    const pad = DIE_SZ * 0.75;
+    const xs = dicePhysics.map(d => d.x), ys = dicePhysics.map(d => d.y);
+    const rx = Math.min(...xs) - pad, ry = Math.min(...ys) - pad;
+    const rw = Math.max(...xs) - Math.min(...xs) + pad * 2;
+    const rh = Math.max(...ys) - Math.min(...ys) + pad * 2;
+    ctx.save();
+    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 28 * fade;
+    ctx.strokeStyle = `rgba(255,215,0,${alpha})`; ctx.lineWidth = 2.5;
+    roundRect(rx, ry, rw, rh, 10); ctx.stroke();
+    ctx.shadowBlur = 12 * fade;
+    ctx.strokeStyle = `rgba(255,255,160,${alpha * 0.6})`; ctx.lineWidth = 5;
+    roundRect(rx - 5, ry - 5, rw + 10, rh + 10, 13); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -2573,10 +2585,13 @@ function update(dt) {
       if (!hasAnyLegalMove()) {
         statusMsg='No legal moves — turn passed'; statusTimer=100; skipTimer=100;
         playDisappointment();
+      } else if (dice.length === 4) {
+        _doublesFlashT = 90; // ~1.5s golden glow for playable doubles
       }
       pushState(); // tell opponent: dice result + board is yours to watch
     }
   }
+  if (_doublesFlashT > 0) _doublesFlashT = Math.max(0, _doublesFlashT - dt);
 }
 
 let _lastFrameTs = 0;
