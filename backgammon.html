@@ -176,7 +176,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v3.0-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v3.1-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -310,7 +310,7 @@ let roomCode = null;
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v3.0-MP';
+const VERSION    = 'v3.1-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -405,9 +405,8 @@ function _listenForState() {
 
       // ── Gameover animations (remote side) ─────────────────────────
       if (phase === 'gameover' && prevPhase !== 'gameover' && data.winner) {
-        const loser = data.winner === 'white' ? 'black' : 'white';
-        const isGammon = off[loser] === 0;
-        statusMsg = (data.winner === 'white' ? 'WHITE' : 'BLACK') + (isGammon ? ' GAMMON!' : ' WINS!');
+        const suffix = data.winType === 'backgammon' ? ' BACKGAMMON!' : data.winType === 'gammon' ? ' GAMMON!' : ' WINS!';
+        statusMsg = (data.winner === 'white' ? 'WHITE' : 'BLACK') + suffix;
         statusTimer = 99999;
         playWin(); triggerFireworks(); triggerBillWinAnim(data.winner);
       }
@@ -467,6 +466,7 @@ function pushState(soundEvent = null) {
     turnTimer: turnTimer,
     soundEvent: se,
     winner: _gameWinner,
+    winType: _gameWinType,
     // Dice rolling init state — lets remote mirror the same animation
     diceInitState: phase === 'rolling'
       ? dicePhysics.map(d => ({x:d.x,y:d.y,vx:d.vx,vy:d.vy,rotation:d.rotation,angularVel:d.angularVel,value:d.value,half:d.half||1}))
@@ -603,6 +603,7 @@ let turnTimer = -1;
 let _lastTickSec = -1;
 let _doublesFlashT = 0; // countdown frames for playable-doubles glow
 let _gameWinner   = null; // 'white'|'black' — set on win, read by remote for safe animation
+let _gameWinType  = null; // 'win'|'gammon'|'backgammon' — set alongside _gameWinner
 let _pendingSound = null; // sound event to include in the next pushState call
 const TURN_FRAMES = 3900; // 65 seconds at ~60fps (60s + 5s buffer) — clock appears after first 30s
 
@@ -1438,10 +1439,21 @@ function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
     if (off[cp] === 15) {
       const opp2 = cp==='white'?'black':'white';
       const isGammon = off[opp2]===0;
-      gameScore[cp] += isGammon ? 2 : 1;
-      phase='gameover'; statusMsg=(cp==='white'?'WHITE':'BLACK')+(isGammon?' GAMMON!':' WINS!');
+      let isBackgammon = false;
+      if (isGammon) {
+        // Backgammon: opponent also has checker on bar or in winner's home board
+        const homeStart = cp==='white' ? 1 : 19;
+        const homeEnd   = cp==='white' ? 6 : 24;
+        if (bar[opp2] > 0) { isBackgammon = true; }
+        else { for (let n=homeStart; n<=homeEnd; n++) { if (points[n].color===opp2 && points[n].count>0) { isBackgammon=true; break; } } }
+      }
+      const pts = isBackgammon ? 3 : isGammon ? 2 : 1;
+      gameScore[cp] += pts;
+      const suffix = isBackgammon ? ' BACKGAMMON!' : isGammon ? ' GAMMON!' : ' WINS!';
+      phase='gameover'; statusMsg=(cp==='white'?'WHITE':'BLACK')+suffix;
       statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(cp); turnTimer=-1;
-      _gameWinner = cp; pushState('win');
+      _gameWinner = cp; _gameWinType = isBackgammon ? 'backgammon' : isGammon ? 'gammon' : 'win';
+      pushState('win');
     }
     else if (movesLeft.length === 0) { endTurn(); }
     else if (!skipLegalCheck && !hasAnyLegalMove()) { statusMsg='No further moves — turn passed'; statusTimer=90; skipTimer=90; playDisappointment(); }
