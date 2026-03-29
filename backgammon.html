@@ -170,10 +170,13 @@
 
     /* ── Vault win overlay ── */
     #vault-overlay {
-      position: fixed; inset: 0; z-index: 50;
-      align-items: center; justify-content: center;
-      pointer-events: none;
-      background: rgba(0,0,0,0.55);
+      position: fixed; top: 0; left: 0;
+      z-index: 50; pointer-events: none;
+      overflow: visible;
+    }
+    #vault-overlay .vault-positioner {
+      position: absolute;
+      transform-origin: 0 0;
     }
     #vault-overlay .scene { perspective: 1600px; perspective-origin: 56% 50%; }
     #vault-overlay .wall {
@@ -362,6 +365,7 @@
 
 <!-- Vault win animation overlay -->
 <div id="vault-overlay" style="display:none">
+  <div class="vault-positioner">
   <div class="scene">
     <div class="wall" id="vault-wall">
       <div class="cavity">
@@ -521,7 +525,8 @@
       </div>
     </div>
   </div>
-</div>
+  </div><!-- /vault-positioner -->
+</div><!-- /vault-overlay -->
 
 <div id="subtitle">White vs Black</div>
 <button id="roll-btn">🎲  ROLL DICE</button>
@@ -2356,9 +2361,10 @@ function drawSafeBox(cx, cy, openFraction, dialAngle) {
 
 function triggerBillWinAnim(winner) {
   const pos = billTrayPos();
-  // Bill flies to canvas center (where the vault overlay appears)
-  const safeX = IX + PLAY_W / 2;
-  const safeY = IY + IH / 2;
+  const gcx = IX + PLAY_W / 2, gcy = IY + IH / 2;
+  // Position vault near winner's name row (same as old canvas safe)
+  const safeX = gcx + 70;
+  const safeY = (winner === 'white') ? gcy + 18 : gcy + 54;
   billSafeAnim = {
     fromX: pos.x + (BEAR_W-10)/2, fromY: pos.y,
     safeX, safeY, winner,
@@ -2366,9 +2372,19 @@ function triggerBillWinAnim(winner) {
     duration: SAFE_OPEN_DUR + SAFE_FLY_DUR + SAFE_CLOSE_DUR,
     done: false
   };
-  // Show vault CSS overlay and replay animation
+  // Position vault overlay at safeX,safeY in canvas → screen coords, scaled down
+  const canvas = document.getElementById('c');
+  const rect = canvas.getBoundingClientRect();
+  const sx = rect.left + safeX * (rect.width  / canvas.width);
+  const sy = rect.top  + safeY * (rect.height / canvas.height);
+  const VAULT_SCALE = 0.22; // 600→132px wide, 720→158px tall
+  const positioner = document.querySelector('#vault-overlay .vault-positioner');
+  positioner.style.left = (sx - 600 * VAULT_SCALE / 2) + 'px';
+  positioner.style.top  = (sy - 720 * VAULT_SCALE / 2) + 'px';
+  positioner.style.transform = `scale(${VAULT_SCALE})`;
+  // Show overlay and replay animation
   const overlay = document.getElementById('vault-overlay');
-  overlay.style.display = 'flex';
+  overlay.style.display = 'block';
   const wall = document.getElementById('vault-wall');
   const fresh = wall.cloneNode(true);
   fresh.id = 'vault-wall';
