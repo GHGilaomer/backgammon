@@ -1,5 +1,13 @@
 # Backgammon Changelog
 
+## v4.3-MP
+**Rewrite matchmaking — deterministic key-comparison, no transactions**
+- Removed transaction and interval polling entirely
+- Both players write to queue then watch the entire `/matchQueue/` with `on('value')` (real-time)
+- Race condition eliminated by rule: player with the **smaller Firebase push key** always becomes White
+- The larger-key player simply waits; the smaller-key player writes the roomCode into the other's entry
+- No polling delay — match fires the moment the second player appears in the queue
+
 ## v4.2-MP
 **Fix transaction cache miss + checkbox alignment**
 - Matchmaking still failed because Firebase transactions receive `null` on first call for uncached nodes, causing an immediate abort. Fix: warm the local cache with `once('value')` before running the transaction.
