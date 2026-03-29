@@ -351,6 +351,22 @@ function _listenForState() {
     }
     _applyingRemote = true;
     try {
+      // ── Checker animation: calculate visual positions BEFORE state is applied ──
+      let remoteAnim = null;
+      if (data.moveAnim) {
+        const ma = data.moveAnim;
+        const savedPlayer = currentPlayer;
+        currentPlayer = ma.color; // needed by topCheckerVisualPos + approxDestPos
+        try {
+          const startPos = topCheckerVisualPos(ma.fromPt);
+          const endPos   = approxDestPos(ma.toPt, ma.fromPt);
+          remoteAnim = { fromPt: ma.fromPt, toPt: ma.toPt, color: ma.color,
+                         x: startPos.x, y: startPos.y, tx: endPos.x, ty: endPos.y,
+                         t: 0, duration: 18, done: false, remainingPath: [] };
+        } catch(e) {}
+        currentPlayer = savedPlayer;
+      }
+
       const prevPhase = phase;
       phase         = data.phase;
       currentPlayer = data.currentPlayer;
@@ -370,6 +386,7 @@ function _listenForState() {
       openingDice = toArr(data.openingDice);
       if (data.turnTimer !== undefined) { turnTimer = data.turnTimer; _lastTickSec = -1; }
       selectedPoint=null; highlights=[]; combinedHighlights=[]; checkerAnim=null; skipTimer=0;
+      if (remoteAnim) { checkerAnim = remoteAnim; playDragSound(); }
 
       // ── Dice display ──────────────────────────────────────────────
       const isRollingPhase = phase === 'rolling' || phase === 'opening_w_rolling' || phase === 'opening_b_rolling';
@@ -381,18 +398,32 @@ function _listenForState() {
         const initArr = Array.isArray(data.diceInitState)
           ? data.diceInitState
           : Object.values(data.diceInitState);
-        dicePhysics = initArr.map(d => {
-          const isLeft = d.half === 'left';
-          return {
-            x: d.x, y: d.y, vx: d.vx, vy: d.vy,
-            rotation: d.rotation, angularVel: d.angularVel,
-            value: d.value, stopped: d.stopped || false, bounceCount: d.stopped ? 99 : 0, frames: 0,
-            half: d.half,
-            minX: isLeft ? leftMinX : rightMinX,
-            maxX: isLeft ? leftMaxX : rightMaxX,
-            minY, maxY
-          };
-        });
+        if (phase === 'opening_b_rolling' && dicePhysics.length >= 1) {
+          // White's die is already settled — keep it, only add Black's new rolling die
+          const blackDie = initArr[initArr.length - 1];
+          if (blackDie && !blackDie.stopped) {
+            dicePhysics = [
+              dicePhysics[0], // preserve White's settled die exactly where it landed
+              { x:blackDie.x, y:blackDie.y, vx:blackDie.vx, vy:blackDie.vy,
+                rotation:blackDie.rotation, angularVel:blackDie.angularVel,
+                value:blackDie.value, stopped:false, bounceCount:0, frames:0, half:1,
+                minX:rightMinX, maxX:rightMaxX, minY, maxY }
+            ];
+          }
+        } else {
+          dicePhysics = initArr.map(d => {
+            const isLeft = d.half === 'left';
+            return {
+              x: d.x, y: d.y, vx: d.vx, vy: d.vy,
+              rotation: d.rotation, angularVel: d.angularVel,
+              value: d.value, stopped: d.stopped || false, bounceCount: d.stopped ? 99 : 0, frames: 0,
+              half: d.half,
+              minX: isLeft ? leftMinX : rightMinX,
+              maxX: isLeft ? leftMaxX : rightMaxX,
+              minY, maxY
+            };
+          });
+        }
       } else if (dice.length > 0 && (phase==='rolled'||phase==='idle')) {
         const positions = data.dicePositions
           ? (Array.isArray(data.dicePositions) ? data.dicePositions : Object.values(data.dicePositions))
@@ -455,6 +486,8 @@ function _showStaticDice(vals, positions) {
 function pushState(soundEvent = null) {
   const se = soundEvent || _pendingSound || null;
   _pendingSound = null;
+  const ma = _pendingMoveAnim;
+  _pendingMoveAnim = null;
   if (!_fbRoom || _applyingRemote) return;
   _fbRoom.child('state').set({
     sender: _myId, sessionId: _sessionId, phase, currentPlayer,
@@ -466,6 +499,7 @@ function pushState(soundEvent = null) {
     openingDice: [...openingDice],
     turnTimer: turnTimer,
     soundEvent: se,
+    moveAnim: ma,
     winner: _gameWinner,
     winType: _gameWinType,
     // Dice rolling init state — lets remote mirror the same animation
@@ -606,6 +640,7 @@ let _doublesFlashT = 0; // countdown frames for playable-doubles glow
 let _gameWinner   = null; // 'white'|'black' — set on win, read by remote for safe animation
 let _gameWinType  = null; // 'win'|'gammon'|'backgammon' — set alongside _gameWinner
 let _pendingSound = null; // sound event to include in the next pushState call
+let _pendingMoveAnim = null; // {fromPt, toPt, color} — set in executeMove, consumed by pushState
 const TURN_FRAMES = 3900; // 65 seconds at ~60fps (60s + 5s buffer) — clock appears after first 30s
 
 // ── Audio ─────────────────────────────────────────────────────
@@ -632,7 +667,7 @@ function loadDiceAudioBuffers() { // called on Start — pre-create pool so firs
   if (diceAudioPool) return;
   diceAudioPool = DICE_FILES.flatMap(f => [new Audio(f), new Audio(f)]);
   diceAudioPool.forEach(a => { a.volume = 1.0; a.load(); });
-  _safeCloseAudio = new Audio('safe closed.m4a');
+  _safeCloseAudio = new Audio('Safe closed.m4a');
   _safeCloseAudio.load();
 }
 
@@ -724,8 +759,9 @@ function playBlotHit() {
 }
 function playSafeDoorClose() {
   try {
-    if (_safeCloseAudio) { _safeCloseAudio.currentTime = 0; _safeCloseAudio.play(); }
-    else { new Audio('safe closed.m4a').play(); }
+    const a = _safeCloseAudio || new Audio('Safe closed.m4a');
+    a.currentTime = 0;
+    a.play().catch(() => {});
   } catch(e) {}
 }
 function playClockTick() {
@@ -1421,6 +1457,7 @@ function executeMove(fromPt, toPt) {
     t: 0, duration: 18, done: false,
     remainingPath: []
   };
+  _pendingMoveAnim = {fromPt, toPt, color: currentPlayer};
 }
 
 function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
