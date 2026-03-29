@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vault Opening</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: radial-gradient(ellipse at center, #1a1210 0%, #060404 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  gap: 22px;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+}
+
+/* Perspective container */
+.scene {
+  perspective: 1600px;
+  perspective-origin: 56% 50%;
+}
+
+/* Concrete wall */
+.wall {
+  position: relative;
+  width: 600px;
+  height: 720px;
+  background: radial-gradient(ellipse at 50% 40%, #302820 0%, #1c1510 55%, #0e0b08 100%);
+  border-radius: 8px;
+  box-shadow: 0 0 100px rgba(0,0,0,0.9), inset 0 0 50px rgba(0,0,0,0.5);
+  transform-style: preserve-3d;
+  overflow: visible;
+}
+
+/* Safe cavity / opening */
+.cavity {
+  position: absolute;
+  left: 100px; top: 80px;
+  width: 400px; height: 560px;
+  background: #08090a;
+  overflow: hidden;
+}
+
+/* Interior ambient light — brightens as door opens */
+.cavity-light {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 60% 52%,
+    rgba(200,170,90,0.28) 0%,
+    rgba(160,130,60,0.12) 45%,
+    transparent 75%);
+  opacity: 0;
+  animation: light-bloom 2.3s ease-out 2.05s forwards;
+}
+@keyframes light-bloom {
+  0%   { opacity: 0; }
+  30%  { opacity: 0.35; }
+  100% { opacity: 1; }
+}
+
+/* Dark mask that slides off to the LEFT as the door sweeps open.
+   Door hinge is on the LEFT, so the right edge of the door clears first.
+   We wipe the mask from right→left by shrinking its left clip boundary. */
+.cavity-mask {
+  position: absolute; inset: 0;
+  background: #000;
+  /* start: fully covering — clip-path inset(0 0 0 0) = whole rect */
+  animation: mask-wipe 2.6s cubic-bezier(0.4, 0.05, 0.18, 1.0) 2.05s forwards;
+}
+@keyframes mask-wipe {
+  0%   { clip-path: inset(0 0% 0 0%); }   /* fully black */
+  100% { clip-path: inset(0 100% 0 0%); } /* fully cleared right→left */
+}
+
+/* Edge shadow that stays at the left wall of the cavity (depth effect) */
+.cavity-edge {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,0.85) 0%, transparent 18%),
+    linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 12%),
+    linear-gradient(0deg,   rgba(0,0,0,0.5) 0%, transparent 10%);
+  pointer-events: none;
+}
+
+/* Safe interior items — always rendered, revealed by mask */
+.interior {
+  position: absolute;
+  inset: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 28px;
+}
+
+.shelf { display: flex; justify-content: center; }
+.shelf-bills {
+  padding-bottom: 14px;
+  border-bottom: 2px solid rgba(255,255,255,0.07);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+}
+
+/* ===================== DOOR ===================== */
+.door-wrap {
+  position: absolute;
+  left: 100px; top: 80px;
+  width: 400px; height: 560px;
+  transform-origin: 0% 50%;
+  transform-style: preserve-3d;
+  animation: swing-open 2.6s cubic-bezier(0.4, 0.05, 0.18, 1.0) 2.05s forwards;
+}
+@keyframes swing-open {
+  0%   { transform: rotateY(0deg); }
+  100% { transform: rotateY(-130deg); }
+}
+
+/* Front face */
+.door-front {
+  position: absolute; inset: 0;
+  background: linear-gradient(160deg, #484F56 0%, #3D4449 48%, #353C42 100%);
+  border: 5px solid #6C7480;
+  box-shadow: 4px 0 18px rgba(0,0,0,0.4);
+  backface-visibility: hidden;
+  overflow: visible;
+}
+
+/* Recessed inner panel */
+.door-panel {
+  position: absolute; inset: 30px;
+  background: linear-gradient(150deg, #3A4046 0%, #2D3438 100%);
+  border: 2px solid #545C64;
+  box-shadow: inset 0 2px 10px rgba(0,0,0,0.45);
+}
+
+/* Back face (inside of door) */
+.door-back {
+  position: absolute; inset: 0;
+  background: linear-gradient(130deg, #252A2E 0%, #1E2226 100%);
+  border: 4px solid #424A50;
+  transform: rotateY(180deg);
+  backface-visibility: hidden;
+}
+
+/* Hinges */
+.hinge {
+  position: absolute;
+  left: -5px;
+  width: 13px;
+  background: linear-gradient(90deg, #545C66, #9BA5AE, #545C66);
+  border-radius: 3px;
+  border: 1px solid #B2BCC6;
+  box-shadow: -2px 0 6px rgba(0,0,0,0.5);
+  z-index: 2;
+}
+.hinge-t { top: 66px; height: 74px; }
+.hinge-b { bottom: 66px; height: 74px; }
+
+/* Corner bolts (decorative) */
+.corner {
+  position: absolute;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #666E7A, #363C46);
+  border: 2px solid #7C8494;
+}
+.c-tl { top: 11px;  left: 11px; }
+.c-tr { top: 11px;  right: 11px; }
+.c-bl { bottom: 11px; left: 11px; }
+.c-br { bottom: 11px; right: 11px; }
+
+/* ===================== LOCKING BOLTS ===================== */
+.bolt {
+  position: absolute;
+  background: linear-gradient(180deg, #5E6672, #4A5260, #5E6672);
+  border-radius: 4px;
+  border: 2px solid #8A94A2;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.5);
+}
+/* Right — 3 bolts */
+.br1 { right: -58px; top: 138px; width: 58px; height: 23px;
+  animation: ret-r .28s ease-out 1.72s forwards; }
+.br2 { right: -58px; top: 278px; width: 58px; height: 23px;
+  animation: ret-r .28s ease-out 1.80s forwards; }
+.br3 { right: -58px; top: 418px; width: 58px; height: 23px;
+  animation: ret-r .28s ease-out 1.88s forwards; }
+/* Top — 2 bolts */
+.bt1 { top: -50px; left: 84px;  width: 23px; height: 50px;
+  animation: ret-t .28s ease-out 1.72s forwards; }
+.bt2 { top: -50px; left: 284px; width: 23px; height: 50px;
+  animation: ret-t .28s ease-out 1.80s forwards; }
+/* Bottom — 2 bolts */
+.bb1 { bottom: -50px; left: 84px;  width: 23px; height: 50px;
+  animation: ret-b .28s ease-out 1.72s forwards; }
+.bb2 { bottom: -50px; left: 284px; width: 23px; height: 50px;
+  animation: ret-b .28s ease-out 1.80s forwards; }
+
+@keyframes ret-r { to { transform: translateX(62px); } }
+@keyframes ret-t { to { transform: translateY(-54px); } }
+@keyframes ret-b { to { transform: translateY(54px);  } }
+
+/* ===================== COMBINATION DIAL ===================== */
+.dial-area {
+  position: absolute;
+  top: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.dial-bezel {
+  width: 186px; height: 186px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #2C2E34, #131518);
+  border: 6px solid #ACB4C0;
+  box-shadow: 0 0 24px rgba(0,0,0,0.7), inset 0 0 18px rgba(0,0,0,0.9);
+  display: flex; justify-content: center; align-items: center;
+  position: relative;
+}
+
+/* Reference tick at 12 o'clock */
+.dial-notch {
+  position: absolute;
+  top: 7px; left: 50%;
+  transform: translateX(-50%);
+  width: 5px; height: 15px;
+  background: #CCD4DC;
+  border-radius: 2px;
+}
+
+.dial-face {
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #2E3240, #181A20);
+  border: 2px solid #5C6474;
+  display: flex; justify-content: center; align-items: center;
+}
+
+.dial-knob {
+  width: 74px; height: 74px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 31%, #626A7A, #363C4A);
+  border: 3px solid #8A94A2;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.75);
+  animation: spin-combo 2.0s ease-in-out 0.05s both;
+  position: relative;
+}
+.dial-knob::before {   /* indicator mark */
+  content: '';
+  position: absolute;
+  top: 9px; left: 50%;
+  transform: translateX(-50%);
+  width: 5px; height: 14px;
+  background: linear-gradient(180deg, #CCD4DC, #8892A0);
+  border-radius: 3px;
+}
+@keyframes spin-combo {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(1260deg); }  /* 3.5 full turns */
+}
+
+/* ===================== HANDLE ===================== */
+.handle-area {
+  position: absolute;
+  top: 372px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 212px;
+}
+.handle-stem {
+  width: 22px; height: 76px;
+  background: linear-gradient(90deg, #464E5A, #6E7882, #464E5A);
+  border-radius: 4px;
+  border: 1px solid #7E8898;
+}
+.handle-bar {
+  width: 212px; height: 36px;
+  background: linear-gradient(180deg, #858F98 0%, #6E7880 45%, #525A62 100%);
+  border-radius: 18px;
+  border: 3px solid #AAB6BE;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.6), inset 0 1px 3px rgba(255,255,255,0.10);
+}
+
+/* ===================== LABELS ===================== */
+.vault-name {
+  position: absolute;
+  top: 316px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #9AAAB4;
+  font-size: 28px;
+  font-weight: 900;
+  font-family: Georgia, serif;
+  letter-spacing: 10px;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+  white-space: nowrap;
+}
+.mfg-name {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #50585E;
+  font-size: 9px;
+  letter-spacing: 3px;
+  white-space: nowrap;
+}
+
+/* ===================== REPLAY BUTTON ===================== */
+.replay-btn {
+  padding: 10px 34px;
+  background: transparent;
+  border: 1px solid rgba(180,180,180,0.25);
+  color: rgba(180,180,180,0.45);
+  font-size: 11px;
+  letter-spacing: 4px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: border-color .3s, color .3s;
+}
+.replay-btn:hover {
+  border-color: rgba(180,180,180,0.55);
+  color: rgba(210,210,210,0.75);
+}
+</style>
+</head>
+<body>
+
+<div class="scene">
+  <div class="wall" id="wall">
+
+    <!-- Safe cavity / interior -->
+    <div class="cavity">
+      <div class="cavity-light"></div>
+      <div class="interior">
+
+        <!-- TOP SHELF: stack of $100 bills, front face view -->
+        <div class="shelf shelf-bills">
+          <svg xmlns="http://www.w3.org/2000/svg" width="310" height="148" viewBox="0 0 310 148">
+            <defs>
+              <linearGradient id="b-bg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#cce8c8"/><stop offset="100%" stop-color="#aed0aa"/>
+              </linearGradient>
+            </defs>
+            <!-- Ghost bills stacked behind, slightly fanned -->
+            <rect x="28" y="42" width="258" height="104" rx="4" fill="#5a8058" stroke="#2e5a2e" stroke-width="1" transform="rotate(-1.8,157,94)"/>
+            <rect x="20" y="33" width="258" height="104" rx="4" fill="#6a9068" stroke="#3a6a3a" stroke-width="0.9" transform="rotate(-1.2,149,85)"/>
+            <rect x="12" y="24" width="258" height="104" rx="4" fill="#7aa878" stroke="#487848" stroke-width="0.8" transform="rotate(-0.6,141,76)"/>
+            <rect x="4" y="16" width="258" height="104" rx="4" fill="#8ab888" stroke="#528252" stroke-width="0.7"/>
+            <!-- TOP BILL: full face -->
+            <rect x="0" y="10" width="258" height="104" rx="4" fill="url(#b-bg)" stroke="#246624" stroke-width="1.8"/>
+            <!-- Double border -->
+            <rect x="4" y="14" width="250" height="96" rx="2" fill="none" stroke="#165016" stroke-width="1.6"/>
+            <rect x="7" y="17" width="244" height="90" rx="1" fill="none" stroke="#246624" stroke-width="0.6"/>
+            <!-- "THE UNITED STATES OF AMERICA" -->
+            <text x="129" y="26" text-anchor="middle" font-size="6" fill="#145014" font-family="Arial" font-weight="bold" letter-spacing="0.4">THE UNITED STATES OF AMERICA</text>
+            <!-- Serial number -->
+            <text x="70" y="22" font-size="4.5" fill="#145014" font-family="Courier New">KL 47935F95 A</text>
+            <!-- "100" top corners -->
+            <text x="17" y="29" text-anchor="middle" font-size="13" fill="#145014" font-family="Georgia" font-weight="bold" font-style="italic">100</text>
+            <text x="241" y="29" text-anchor="middle" font-size="13" fill="#145014" font-family="Georgia" font-weight="bold" font-style="italic">100</text>
+            <!-- Federal Reserve seal (left circle) -->
+            <circle cx="40" cy="71" r="21" fill="none" stroke="#145014" stroke-width="1.4"/>
+            <circle cx="40" cy="71" r="16" fill="#b8d8b4" stroke="#145014" stroke-width="0.6"/>
+            <text x="40" y="66" text-anchor="middle" font-size="4" fill="#145014" font-family="Arial" font-weight="bold">FEDERAL</text>
+            <text x="40" y="72" text-anchor="middle" font-size="4" fill="#145014" font-family="Arial" font-weight="bold">RESERVE</text>
+            <text x="40" y="78" text-anchor="middle" font-size="4" fill="#145014" font-family="Arial" font-weight="bold">SYSTEM</text>
+            <text x="40" y="54" text-anchor="middle" font-size="5.5" fill="#145014" font-family="Arial" font-weight="bold">L</text>
+            <!-- Portrait oval frame -->
+            <ellipse cx="129" cy="70" rx="40" ry="42" fill="#bcdab8" stroke="#165a16" stroke-width="1.2"/>
+            <!-- === FRANKLIN PORTRAIT === -->
+            <!-- Coat/shoulders -->
+            <path d="M 99,110 Q 103,94 109,88 L 149,88 Q 155,94 159,110 Z" fill="#181006"/>
+            <!-- White cravat stock -->
+            <path d="M 121,88 L 129,95 L 137,88 L 134,83 Q 129,86 124,83 Z" fill="#e8e4da"/>
+            <!-- Neck -->
+            <rect x="124" y="80" width="10" height="10" rx="2" fill="#d0a268"/>
+            <!-- Head shape (oval, slightly full-cheeked) -->
+            <path d="M 103,73 Q 100,54 103,42 Q 109,28 129,26 Q 149,28 155,42 Q 158,54 155,73 Q 155,85 149,89 Q 139,94 129,94 Q 119,94 109,89 Q 103,85 103,73 Z" fill="#d4a468"/>
+            <!-- Jowls -->
+            <path d="M 103,71 Q 95,75 96,84 Q 98,91 104,91 Q 98,84 99,76 Z" fill="#c89860"/>
+            <path d="M 155,71 Q 163,75 162,84 Q 160,91 154,91 Q 160,84 159,76 Z" fill="#c89860"/>
+            <!-- Hair sides (white, colonial curls) -->
+            <path d="M 103,46 Q 94,44 91,54 Q 89,65 92,74 Q 95,79 99,79 Q 93,70 94,59 Q 96,51 103,46 Z" fill="#e2daca"/>
+            <path d="M 155,46 Q 164,44 167,54 Q 169,65 166,74 Q 163,79 159,79 Q 165,70 164,59 Q 162,51 155,46 Z" fill="#e2daca"/>
+            <!-- Top head (slightly receding hairline) -->
+            <path d="M 103,42 Q 104,31 129,28 Q 154,31 155,42 Q 149,36 129,34 Q 109,36 103,42 Z" fill="#d4caba"/>
+            <!-- Forehead (slight baldness) -->
+            <ellipse cx="129" cy="40" rx="22" ry="9" fill="#d4a468"/>
+            <!-- Eyes -->
+            <ellipse cx="116" cy="59" rx="6" ry="4" fill="#261808"/>
+            <ellipse cx="142" cy="59" rx="6" ry="4" fill="#261808"/>
+            <!-- Eye shine -->
+            <ellipse cx="117.5" cy="57.5" rx="2" ry="1.3" fill="white" opacity="0.3"/>
+            <ellipse cx="143.5" cy="57.5" rx="2" ry="1.3" fill="white" opacity="0.3"/>
+            <!-- Eyebrows (bushy) -->
+            <path d="M 110,55 Q 116,52.5 122,53.5" stroke="#342008" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <path d="M 136,53.5 Q 142,52.5 148,55" stroke="#342008" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <!-- Nose (prominent) -->
+            <path d="M 129,62 L 126,70 Q 123,74 124,76 Q 129,78 134,76 Q 135,74 132,70 Z" fill="#c49060" stroke="#a87040" stroke-width="0.5"/>
+            <ellipse cx="126" cy="75" rx="2" ry="1.2" fill="#a07040" opacity="0.55"/>
+            <ellipse cx="132" cy="75" rx="2" ry="1.2" fill="#a07040" opacity="0.55"/>
+            <!-- Mouth (thin, slightly pursed) -->
+            <path d="M 120,82 Q 129,85 138,82" stroke="#8a4020" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            <path d="M 122,80 Q 129,78 136,80" stroke="#9a5830" stroke-width="0.7" fill="none"/>
+            <!-- Chin (rounded) -->
+            <path d="M 121,89 Q 129,93 137,89 Q 133,94 129,94 Q 125,94 121,89 Z" fill="#ca9860"/>
+            <!-- Left ear -->
+            <path d="M 101,63 Q 95,67 96,73 Q 98,80 103,77 Q 100,73 101,66 Z" fill="#c89660" stroke="#a87840" stroke-width="0.5"/>
+            <!-- Treasury seal (right circle) -->
+            <circle cx="218" cy="71" r="21" fill="none" stroke="#145014" stroke-width="1.4"/>
+            <circle cx="218" cy="71" r="16" fill="#b8d8b4" stroke="#145014" stroke-width="0.6"/>
+            <!-- Balance scales -->
+            <line x1="218" y1="57" x2="218" y2="85" stroke="#145014" stroke-width="1.3"/>
+            <line x1="209" y1="62" x2="227" y2="62" stroke="#145014" stroke-width="1.3"/>
+            <path d="M 209,62 Q 207,67 210,70 Q 214,73 218,68" fill="none" stroke="#145014" stroke-width="0.9"/>
+            <path d="M 227,62 Q 229,67 226,70 Q 222,73 218,68" fill="none" stroke="#145014" stroke-width="0.9"/>
+            <circle cx="218" cy="83" r="3" fill="none" stroke="#145014" stroke-width="1"/>
+            <!-- Large "100" right of portrait -->
+            <text x="196" y="79" text-anchor="middle" font-size="24" fill="#145014" font-family="Georgia" font-weight="bold" font-style="italic" opacity="0.5">100</text>
+            <!-- "ONE HUNDRED DOLLARS" -->
+            <text x="129" y="107" text-anchor="middle" font-size="5.5" fill="#145014" font-family="Arial" font-weight="bold" letter-spacing="0.7">ONE HUNDRED DOLLARS</text>
+            <text x="129" y="112" text-anchor="middle" font-size="4" fill="#145014" font-family="Arial" letter-spacing="0.2">WASHINGTON, D.C.</text>
+            <!-- "100" bottom corners -->
+            <text x="17" y="113" text-anchor="middle" font-size="13" fill="#145014" font-family="Georgia" font-weight="bold" font-style="italic">100</text>
+            <text x="241" y="113" text-anchor="middle" font-size="13" fill="#145014" font-family="Georgia" font-weight="bold" font-style="italic">100</text>
+          </svg>
+        </div>
+
+        <!-- BOTTOM SHELF: 3-2-1 pyramid of gold bars -->
+        <div class="shelf shelf-gold">
+          <svg xmlns="http://www.w3.org/2000/svg" width="258" height="165" viewBox="0 0 258 165">
+            <defs>
+              <linearGradient id="gf" x1="0" y1="0" x2="0.7" y2="1">
+                <stop offset="0%"   stop-color="#FFE97A"/>
+                <stop offset="22%"  stop-color="#FFCC28"/>
+                <stop offset="55%"  stop-color="#FF9A00"/>
+                <stop offset="100%" stop-color="#D46200"/>
+              </linearGradient>
+              <linearGradient id="gtf" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%"   stop-color="#FFFDE0"/>
+                <stop offset="55%"  stop-color="#FFE27A"/>
+                <stop offset="100%" stop-color="#FFBB00"/>
+              </linearGradient>
+              <radialGradient id="gsh" cx="32%" cy="28%" r="52%">
+                <stop offset="0%"   stop-color="white" stop-opacity="0.38"/>
+                <stop offset="100%" stop-color="white" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <!-- Floor shadow -->
+            <ellipse cx="129" cy="162" rx="120" ry="5" fill="rgba(0,0,0,0.38)"/>
+            <!-- Each bar: top-face (parallelogram) + front face (rounded rect) + right-side face -->
+            <!-- Drawing order: bottom row first, then middle, then top (painter's algorithm) -->
+
+            <!-- BOTTOM ROW — 3 bars at translate_y=106 -->
+            <g transform="translate(0,106)">
+              <path d="M 78,5 L 86,0 L 86,45 L 78,51 Z" fill="#945800"/>
+              <path d="M 0,5 L 78,5 L 86,0 L 8,0 Z" fill="url(#gtf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gsh)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="none" stroke="#9A6800" stroke-width="1"/>
+            </g>
+            <g transform="translate(84,106)">
+              <path d="M 78,5 L 86,0 L 86,45 L 78,51 Z" fill="#945800"/>
+              <path d="M 0,5 L 78,5 L 86,0 L 8,0 Z" fill="url(#gtf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gsh)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="none" stroke="#9A6800" stroke-width="1"/>
+            </g>
+            <g transform="translate(168,106)">
+              <path d="M 78,5 L 86,0 L 86,45 L 78,51 Z" fill="#945800"/>
+              <path d="M 0,5 L 78,5 L 86,0 L 8,0 Z" fill="url(#gtf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gsh)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="none" stroke="#9A6800" stroke-width="1"/>
+            </g>
+
+            <!-- MIDDLE ROW — 2 bars at translate_y=54 (rests on bottom row top face) -->
+            <g transform="translate(42,54)">
+              <path d="M 78,5 L 86,0 L 86,45 L 78,51 Z" fill="#945800"/>
+              <path d="M 0,5 L 78,5 L 86,0 L 8,0 Z" fill="url(#gtf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gsh)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="none" stroke="#9A6800" stroke-width="1"/>
+            </g>
+            <g transform="translate(126,54)">
+              <path d="M 78,5 L 86,0 L 86,45 L 78,51 Z" fill="#945800"/>
+              <path d="M 0,5 L 78,5 L 86,0 L 8,0 Z" fill="url(#gtf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gsh)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="none" stroke="#9A6800" stroke-width="1"/>
+            </g>
+
+            <!-- TOP ROW — 1 bar at translate_y=2 -->
+            <g transform="translate(84,2)">
+              <path d="M 78,5 L 86,0 L 86,45 L 78,51 Z" fill="#945800"/>
+              <path d="M 0,5 L 78,5 L 86,0 L 8,0 Z" fill="url(#gtf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gf)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="url(#gsh)"/>
+              <rect x="0" y="5" width="78" height="46" rx="9" fill="none" stroke="#9A6800" stroke-width="1"/>
+            </g>
+          </svg>
+        </div>
+
+      </div>
+      <div class="cavity-edge"></div>
+      <div class="cavity-mask"></div>
+    </div>
+
+    <!-- ============ DOOR ============ -->
+    <div class="door-wrap">
+
+      <!-- Front face (all the door decor lives here) -->
+      <div class="door-front">
+        <div class="door-panel"></div>
+
+        <div class="hinge hinge-t"></div>
+        <div class="hinge hinge-b"></div>
+
+        <div class="corner c-tl"></div><div class="corner c-tr"></div>
+        <div class="corner c-bl"></div><div class="corner c-br"></div>
+
+        <div class="bolt br1"></div>
+        <div class="bolt br2"></div>
+        <div class="bolt br3"></div>
+        <div class="bolt bt1"></div>
+        <div class="bolt bt2"></div>
+        <div class="bolt bb1"></div>
+        <div class="bolt bb2"></div>
+
+        <div class="dial-area">
+          <div class="dial-bezel">
+            <div class="dial-notch"></div>
+            <div class="dial-face">
+              <div class="dial-knob"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="vault-name">VAULT</div>
+        <div class="mfg-name">STEEL GUARDIAN Co.</div>
+
+        <div class="handle-area">
+          <div class="handle-stem"></div>
+          <div class="handle-bar"></div>
+        </div>
+      </div>
+
+      <!-- Back face (inside of door, visible after 90°) -->
+      <div class="door-back"></div>
+
+    </div>
+    <!-- /door-wrap -->
+
+  </div>
+</div>
+
+<button class="replay-btn" onclick="replay()">&#8635;&nbsp; REPLAY</button>
+
+<script>
+function replay() {
+  const scene = document.querySelector('.scene');
+  const wall  = document.getElementById('wall');
+  const fresh = wall.cloneNode(true);
+  scene.replaceChild(fresh, wall);
+}
+</script>
+
+</body>
+</html>
