@@ -678,20 +678,25 @@ async function _registerPlayer(name) {
     const json = await res.json();
     _myIp = json.ip;
   } catch(e) { _myIp = 'unknown_' + Date.now(); }
-  _fbInit();
-  _myPlayerKey = _mkPlayerKey(name, _myIp);
-  const ref = _fbDb.ref('players/' + _myPlayerKey);
-  const snap = await ref.once('value');
-  const rec = snap.val();
-  if (rec) {
-    _myRating = rec.rating || 1500;
-    _myGamesPlayed = rec.gamesPlayed || 0;
-    ref.update({ name, lastSeen: Date.now() });
-  } else {
-    _myRating = 1500; _myGamesPlayed = 0;
-    ref.set({ name, ip: _myIp, rating: 1500, gamesPlayed: 0, lastSeen: Date.now() });
+  try {
+    _fbInit();
+    _myPlayerKey = _mkPlayerKey(name, _myIp);
+    const ref = _fbDb.ref('players/' + _myPlayerKey);
+    const snap = await ref.once('value');
+    const rec = snap.val();
+    if (rec) {
+      _myRating = rec.rating || 1500;
+      _myGamesPlayed = rec.gamesPlayed || 0;
+      ref.update({ name, lastSeen: Date.now() });
+    } else {
+      _myRating = 1500; _myGamesPlayed = 0;
+      ref.set({ name, ip: _myIp, rating: 1500, gamesPlayed: 0, lastSeen: Date.now() });
+    }
+    _updateRatingDisplay();
+  } catch(e) {
+    // Firebase rules not yet updated — game still works, rating features disabled
+    console.warn('Player registration skipped:', e.message);
   }
-  _updateRatingDisplay();
 }
 
 let _loopStarted = false;
