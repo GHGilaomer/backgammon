@@ -918,43 +918,42 @@ function _hideRematchBtn() {
 
 function _doRematch() {
   _hideRematchBtn();
-  // Swap roles and restart — White creates a new session, Black joins
+  // Show waiting state on the button
+  const btn = document.getElementById('rematch-btn');
+  btn.textContent = '⏳  WAITING FOR OPPONENT...';
+  btn.disabled = true;
+  document.getElementById('rematch-overlay').style.display = 'block';
+
+  // Write this player's rematch intent to Firebase
+  _fbRoom.child('rematch/' + myRole).set(true);
+
+  // When the opponent also signals rematch, start the new game
+  const otherRole = myRole === 'white' ? 'black' : 'white';
+  _fbRoom.child('rematch/' + otherRole).on('value', function rematchWatcher(snap) {
+    if (!snap.val()) return;
+    _fbRoom.child('rematch/' + otherRole).off('value', rematchWatcher);
+    _startRematch();
+  });
+}
+
+function _startRematch() {
+  _hideRematchBtn();
+  // Reset button for future use
+  const btn = document.getElementById('rematch-btn');
+  if (btn) { btn.textContent = '⚔  REMATCH'; btn.disabled = false; }
+  _fbRoom.child('rematch').remove();
+
   if (myRole === 'white') {
+    // White drives: new session ID, launch board, push initial state to Firebase
     _sessionId = Math.random().toString(36).slice(2, 10);
-    _fbRoom.remove().then(() => {
-      _fbRoom.child('players/white').set({ name: players.white.name, flag: players.white.flag||'', rating: _myRating, level: _levelLabel(_myRating) });
-    });
-    document.getElementById('setup-overlay').style.display = 'flex';
-    document.getElementById('c').style.display = 'none';
-    document.getElementById('lobby-section').style.display = 'none';
-    document.getElementById('waiting-room').style.display = 'block';
-    document.getElementById('room-code-display').textContent = roomCode;
-    document.getElementById('waiting-status').textContent = 'Waiting for opponent to rematch...';
-    let _rejoined = false;
-    _fbRoom.child('players/black').on('value', snap => {
-      const bl = snap.val();
-      if (!bl || !bl.name || bl.name === '...' || _rejoined) return;
-      _rejoined = true;
-      _fbRoom.child('players/black').off('value');
-      players.black = { name: bl.name, flag: bl.flag||'', rating: bl.rating||1500, level: _levelLabel(bl.rating||1500) };
-      _loopStarted = false; _launchGame(); _listenForState(); pushState();
-    });
+    _loopStarted = false;
+    _launchGame();
+    pushState(); // Black's existing _listenForState will see phase='opening' and reset
   } else {
-    // Black: show the room code so they can rejoin
-    document.getElementById('setup-overlay').style.display = 'flex';
-    document.getElementById('c').style.display = 'none';
-    document.getElementById('lobby-section').style.display = 'none';
-    document.getElementById('join-code').value = roomCode;
-    document.getElementById('searching-room').style.display = 'none';
-    document.getElementById('waiting-room').style.display = 'none';
-    // Simulate Black joining the same room
-    _fbRoom.child('players/white').once('value', snap => {
-      const wh = snap.val();
-      if (!wh) return;
-      players.white = { name: wh.name, flag: wh.flag||'', rating: wh.rating||1500, level: _levelLabel(wh.rating||1500) };
-      _fbRoom.child('players/black').set({ name: players.black.name, flag: players.black.flag||'', rating: _myRating, level: _levelLabel(_myRating) });
-      _loopStarted = false; _listenForState();
-    });
+    // Black: clear session ID so we accept White's new session, then wait for White's push
+    _sessionId = '';
+    _rematchPending = true;
+    // initBoard will be called in _listenForState when White's new game push arrives
   }
 }
 
@@ -994,6 +993,7 @@ function _updateElo(winnerColor, pts) {
 
 let _isRankedGame = false;   // true only for Find a Match games
 let _timeoutPending = false; // true when clock expired and waiting for declare/wait decision
+let _rematchPending = false; // true on Black's side while waiting for White to push new game
 let _matchQueueRef = null; // my own queue entry ref
 let _matchPollInterval = null;
 let _acceptCountdownInterval = null;
@@ -1302,9 +1302,14 @@ function _listenForState() {
     if (myRole === 'black' && !_sessionId && data.sessionId) _sessionId = data.sessionId;
     // Reject stale state from a previous game
     if (_sessionId && data.sessionId && data.sessionId !== _sessionId) return;
-    // Black: first push from White launches the game
+    // Black: first push from White launches the game (initial join)
     if (myRole === 'black' && document.getElementById('setup-overlay').style.display !== 'none') {
       _launchGame();
+    }
+    // Black: rematch path — White pushed new game state, reset board and start playing
+    if (myRole === 'black' && _rematchPending && data.phase === 'opening') {
+      _rematchPending = false;
+      initBoard(); // fresh board; _listenForState continues applying White's state below
     }
     _applyingRemote = true;
     try {
@@ -1345,8 +1350,8 @@ function _listenForState() {
       if (data.turnTimer !== undefined) {
         turnTimer = data.turnTimer;
         _lastTickSec = -1;
-        // If opponent reset the clock (Wait A Bit Longer), unfreeze the active player
-        if (data.turnTimer > 0 && _timeoutPending) _timeoutPending = false;
+        // If opponent responded to timeout (Wait or any non-timeout push), unfreeze the active player
+        if (_timeoutPending && !data.timedOut) _timeoutPending = false;
       }
       selectedPoint=null; highlights=[]; combinedHighlights=[]; checkerAnim=null; skipTimer=0;
       if (remoteAnim) { checkerAnim = remoteAnim; playDragSound(); }
