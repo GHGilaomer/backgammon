@@ -763,17 +763,26 @@
 // ════════════════════════════════════════════════════════════
 
 // ── Disclaimer ───────────────────────────────────────────────
-(function() {
-  const KEY = 'backgammon_disclaimer_v1';
-  if (!localStorage.getItem(KEY)) {
-    document.getElementById('disclaimer-overlay').style.display = 'flex';
-    document.getElementById('setup-overlay').style.display = 'none';
+// Only shown on first-ever play, triggered by Create/Join/Find buttons
+const _DISC_KEY = 'backgammon_disclaimer_v1';
+let _disclaimerCallback = null; // function to call after user accepts
+
+function _requireDisclaimer(callback) {
+  if (localStorage.getItem(_DISC_KEY)) {
+    callback(); // already accepted — proceed immediately
+    return;
   }
-})();
+  _disclaimerCallback = callback;
+  document.getElementById('disclaimer-overlay').style.display = 'flex';
+}
 function _disclaimerAccept() {
-  localStorage.setItem('backgammon_disclaimer_v1', '1');
+  localStorage.setItem(_DISC_KEY, '1');
   document.getElementById('disclaimer-overlay').style.display = 'none';
-  document.getElementById('setup-overlay').style.display = 'flex';
+  // Reset checkbox for potential future sessions
+  const chk = document.getElementById('disc-check');
+  if (chk) chk.checked = false;
+  document.getElementById('btn-disclaimer-accept').disabled = true;
+  if (_disclaimerCallback) { const cb = _disclaimerCallback; _disclaimerCallback = null; cb(); }
 }
 
 const canvas = document.getElementById('c');
@@ -1347,11 +1356,11 @@ function _listenForState() {
       movesLeft   = toArr(data.movesLeft);
       gameScore.white=data.gameScore.white; gameScore.black=data.gameScore.black;
       openingDice = toArr(data.openingDice);
+      // Any push that is NOT a timeout signal unblocks the active player
+      if (_timeoutPending && !data.timedOut) _timeoutPending = false;
       if (data.turnTimer !== undefined) {
-        turnTimer = data.turnTimer;
+        _setTurnTimer(data.turnTimer);
         _lastTickSec = -1;
-        // If opponent responded to timeout (Wait or any non-timeout push), unfreeze the active player
-        if (_timeoutPending && !data.timedOut) _timeoutPending = false;
       }
       selectedPoint=null; highlights=[]; combinedHighlights=[]; checkerAnim=null; skipTimer=0;
       if (remoteAnim) { checkerAnim = remoteAnim; playDragSound(); }
@@ -1439,7 +1448,7 @@ function _listenForState() {
         document.getElementById('timeout-wait-btn').onclick = () => {
           document.getElementById('timeout-overlay').style.display = 'none';
           _timeoutPending = false;
-          turnTimer = TURN_FRAMES; // reset clock for another 65s
+          _setTurnTimer(TURN_FRAMES); // reset clock for another 65s
           pushState(); // notify active player: clock reset, they may roll again
         };
       }
@@ -1544,7 +1553,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  document.getElementById('create-btn').addEventListener('click', async () => {
+  document.getElementById('create-btn').addEventListener('click', () => {
+    _requireDisclaimer(() => _doCreateGame());
+  });
+  async function _doCreateGame() {
     const name = document.getElementById('my-name').value.trim() || 'White';
     const flag = document.getElementById('my-country').value;
     showErr('');
@@ -1574,9 +1586,12 @@ document.addEventListener('DOMContentLoaded', () => {
       _listenForState();
       pushState(); // White pushes initial board state to start the game
     });
-  });
+  } // end _doCreateGame
 
-  document.getElementById('join-btn').addEventListener('click', async () => {
+  document.getElementById('join-btn').addEventListener('click', () => {
+    _requireDisclaimer(() => _doJoinGame());
+  });
+  async function _doJoinGame() {
     const name = document.getElementById('my-name').value.trim() || 'Black';
     const flag = document.getElementById('my-country').value;
     _isRankedGame = false;
@@ -1595,13 +1610,17 @@ document.addEventListener('DOMContentLoaded', () => {
       _fbRoom.child('players/black').set({name, flag, rating: _myRating, level: _levelLabel(_myRating)});
       _listenForState(); // listen BEFORE launch so we get the initial state push from White
     });
-  });
+  } // end _doJoinGame
+
   // Enter key in the room-code field triggers Join
   document.getElementById('join-code').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('join-btn').click(); }
   });
 
-  document.getElementById('find-btn').addEventListener('click', async () => {
+  document.getElementById('find-btn').addEventListener('click', () => {
+    _requireDisclaimer(() => _doFindMatch());
+  });
+  async function _doFindMatch() {
     const name = document.getElementById('my-name').value.trim() || 'Player';
     const flag = document.getElementById('my-country').value;
     showErr('');
@@ -1609,7 +1628,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lobby-section').style.display = 'none';
     document.getElementById('searching-room').style.display = 'block';
     await _findMatch(name, flag);
-  });
+  }
 
   document.getElementById('cancel-find-btn').addEventListener('click', () => {
     _cancelMatchSearch();
@@ -1671,9 +1690,15 @@ let openingDice = []; // [whiteDie, blackDie] — used during opening roll phase
 // Fireworks
 let fireworks = [], fireworkBurstQueue = [];
 let billSafeAnim = null; // {fromX,fromY,safeX,safeY,t,duration,done}
-// Chess clock (frames at ~60fps)
+// Chess clock (frames at ~60fps); real-time deadline tracked separately for background tabs
 let turnTimer = -1;
+let _clockDeadlineMs = -1; // Date.now() of expiry; -1 = inactive
 let _lastTickSec = -1;
+function _setTurnTimer(frames) {
+  turnTimer = frames;
+  _clockDeadlineMs = frames > 0 ? Date.now() + frames * (1000 / 60) : -1;
+}
+function _clearTurnTimer() { turnTimer = -1; _clockDeadlineMs = -1; }
 let _doublesFlashT = 0; // countdown frames for playable-doubles glow
 let _gameWinner   = null; // 'white'|'black' — set on win, read by remote for safe animation
 let _gameWinType  = null; // 'win'|'gammon'|'backgammon' — set alongside _gameWinner
@@ -1689,7 +1714,10 @@ function ac() { if (!_ac) _ac = new (window.AudioContext||window.webkitAudioCont
 // iOS suspends the AudioContext when the app goes to background (phone call,
 // lock screen, switching apps). Resume it the moment the user comes back.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && _ac && _ac.state === 'suspended') _ac.resume();
+  if (!document.hidden) {
+    if (_ac && _ac.state === 'suspended') _ac.resume();
+    _lastFrameTs = 0; // reset so dt doesn't spike on the first frame back
+  }
 });
 // Also resume on any touch — belt-and-suspenders for older iOS Safari
 document.addEventListener('touchstart', () => {
@@ -2232,7 +2260,7 @@ function initBoard() {
   currentPlayer='white'; dice=[]; movesLeft=[];
   selectedPoint=null; highlights=[]; combinedHighlights=[]; statusMsg=''; statusTimer=0; skipTimer=0;
   dicePhysics=[]; checkerAnim=null; blotAnim=null; openingDice=[];
-  turnTimer=-1; fireworks=[]; fireworkBurstQueue=[]; billSafeAnim=null;
+  turnTimer=-1; _clockDeadlineMs=-1; fireworks=[]; fireworkBurstQueue=[]; billSafeAnim=null;
 }
 
 // ── Legal moves ───────────────────────────────────────────────
@@ -2397,7 +2425,7 @@ function endTurn() {
   dice = []; movesLeft = []; phase = 'idle';
   selectedPoint = null; highlights = []; combinedHighlights = []; skipTimer = 0;
   dicePhysics = [];
-  turnTimer = TURN_FRAMES;
+  _setTurnTimer(TURN_FRAMES);
   pushState(); // tell opponent: your turn now
 }
 
@@ -2557,7 +2585,7 @@ function executeMoveFinal(fromPt, toPt, skipLegalCheck = false) {
       gameScore[cp] += pts;
       const suffix = isBackgammon ? ' BACKGAMMON!' : isGammon ? ' GAMMON!' : ' WINS!';
       phase='gameover'; statusMsg=(cp==='white'?'WHITE':'BLACK')+suffix;
-      statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(cp); turnTimer=-1;
+      statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(cp); _clearTurnTimer();
       _gameWinner = cp; _gameWinType = isBackgammon ? 'backgammon' : isGammon ? 'gammon' : 'win';
       _updateElo(cp, pts); _saveMatchHistory(cp, pts); _showRematchBtn();
       pushState('win');
@@ -3742,11 +3770,11 @@ function update(dt) {
     playDisappointment();
   }
 
-  // Chess clock — frame-rate independent via dt scaling
-  if ((phase==='idle'||phase==='rolling'||phase==='rolled') && turnTimer > 0) {
-    turnTimer -= dt;
+  // Chess clock — wall-clock based so it runs even when tab is hidden/minimised
+  if ((phase==='idle'||phase==='rolling'||phase==='rolled') && _clockDeadlineMs > 0) {
+    turnTimer = (_clockDeadlineMs - Date.now()) / (1000 / 60); // convert remaining ms → frames
     if (turnTimer <= 0 && !checkerAnim && !_timeoutPending) {
-      turnTimer = -1;
+      _clearTurnTimer();
       if (!myRole) {
         // Singleplayer — auto-forfeit 3 pts
         _timeoutPending = true;
@@ -3793,7 +3821,7 @@ function update(dt) {
       } else {
         currentPlayer = wd > bd ? 'white' : 'black';
         dice = [wd, bd]; movesLeft = [wd, bd];
-        phase = 'rolled'; turnTimer = TURN_FRAMES;
+        phase = 'rolled'; _setTurnTimer(TURN_FRAMES);
         const winner = wd > bd ? (players.white.name||'White') : (players.black.name||'Black');
         statusMsg = winner + ' goes first!'; statusTimer = 130;
         if (!hasAnyLegalMove()) {
