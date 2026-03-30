@@ -531,7 +531,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.3-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.4-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -763,22 +763,46 @@
 // ════════════════════════════════════════════════════════════
 
 // ── Disclaimer ───────────────────────────────────────────────
-// Only shown on first-ever play, triggered by Create/Join/Find buttons
-const _DISC_KEY = 'backgammon_disclaimer_v1';
-let _disclaimerCallback = null; // function to call after user accepts
+// Player identity = name + IP (same as rating key). Disclaimer stored per-player in Firebase.
+// Falls back to localStorage if Firebase is unavailable.
+const _DISC_LS_KEY = 'backgammon_disclaimer_v1'; // localStorage fallback key
+let _disclaimerCallback = null;
 
-function _requireDisclaimer(callback) {
-  if (localStorage.getItem(_DISC_KEY)) {
-    callback(); // already accepted — proceed immediately
-    return;
-  }
-  _disclaimerCallback = callback;
-  document.getElementById('disclaimer-overlay').style.display = 'flex';
+// Returns a Promise that resolves once the player has accepted (or already had accepted).
+// Must be called AFTER _registerPlayer() so _myPlayerKey and _fbDb are ready.
+function _checkAndShowDisclaimer() {
+  return new Promise(async resolve => {
+    let alreadyAccepted = false;
+    // 1. Try Firebase record for this name+IP identity
+    if (_myPlayerKey && _fbDb) {
+      try {
+        const snap = await _fbDb.ref('players/' + _myPlayerKey + '/disclaimerAccepted').once('value');
+        alreadyAccepted = !!snap.val();
+      } catch(e) {
+        // Firebase unavailable — fall back to localStorage
+        alreadyAccepted = !!localStorage.getItem(_DISC_LS_KEY);
+      }
+    } else {
+      alreadyAccepted = !!localStorage.getItem(_DISC_LS_KEY);
+    }
+
+    if (alreadyAccepted) { resolve(); return; }
+
+    // 2. Show disclaimer; resolve after user accepts
+    _disclaimerCallback = async () => {
+      try {
+        if (_myPlayerKey && _fbDb)
+          await _fbDb.ref('players/' + _myPlayerKey).update({ disclaimerAccepted: true });
+      } catch(e) {}
+      localStorage.setItem(_DISC_LS_KEY, '1'); // belt-and-suspenders fallback
+      resolve();
+    };
+    document.getElementById('disclaimer-overlay').style.display = 'flex';
+  });
 }
+
 function _disclaimerAccept() {
-  localStorage.setItem(_DISC_KEY, '1');
   document.getElementById('disclaimer-overlay').style.display = 'none';
-  // Reset checkbox for potential future sessions
   const chk = document.getElementById('disc-check');
   if (chk) chk.checked = false;
   document.getElementById('btn-disclaimer-accept').disabled = true;
@@ -888,7 +912,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v5.3-MP';
+const VERSION    = 'v5.4-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1553,15 +1577,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  document.getElementById('create-btn').addEventListener('click', () => {
-    _requireDisclaimer(() => _doCreateGame());
-  });
+  document.getElementById('create-btn').addEventListener('click', () => _doCreateGame());
   async function _doCreateGame() {
     const name = document.getElementById('my-name').value.trim() || 'White';
     const flag = document.getElementById('my-country').value;
     showErr('');
     _isRankedGame = false;
-    await _registerPlayer(name);
+    await _registerPlayer(name);        // establishes name+IP identity
+    await _checkAndShowDisclaimer();    // shows disclaimer if this identity hasn't accepted yet
     roomCode   = _genCode();
     _sessionId = Math.random().toString(36).slice(2, 10); // fresh session ID
     _fbRoom    = _fbDb.ref('rooms/' + roomCode);
@@ -1588,9 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   } // end _doCreateGame
 
-  document.getElementById('join-btn').addEventListener('click', () => {
-    _requireDisclaimer(() => _doJoinGame());
-  });
+  document.getElementById('join-btn').addEventListener('click', () => _doJoinGame());
   async function _doJoinGame() {
     const name = document.getElementById('my-name').value.trim() || 'Black';
     const flag = document.getElementById('my-country').value;
@@ -1598,7 +1619,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const code = (document.getElementById('join-code').value||'').trim().toUpperCase();
     if (code.length !== 4) { showErr('Please enter a 4-letter room code.'); return; }
     showErr('Joining...');
-    await _registerPlayer(name);
+    await _registerPlayer(name);        // establishes name+IP identity
+    await _checkAndShowDisclaimer();    // shows disclaimer if this identity hasn't accepted yet
     roomCode = code;
     _fbRoom  = _fbDb.ref('rooms/' + roomCode);
     _fbRoom.child('players/white').once('value', snap => {
@@ -1617,14 +1639,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('join-btn').click(); }
   });
 
-  document.getElementById('find-btn').addEventListener('click', () => {
-    _requireDisclaimer(() => _doFindMatch());
-  });
+  document.getElementById('find-btn').addEventListener('click', () => _doFindMatch());
   async function _doFindMatch() {
     const name = document.getElementById('my-name').value.trim() || 'Player';
     const flag = document.getElementById('my-country').value;
     showErr('');
     _fbInit();
+    await _registerPlayer(name);        // establishes name+IP identity
+    await _checkAndShowDisclaimer();    // shows disclaimer if this identity hasn't accepted yet
     document.getElementById('lobby-section').style.display = 'none';
     document.getElementById('searching-room').style.display = 'block';
     await _findMatch(name, flag);
