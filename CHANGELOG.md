@@ -1,5 +1,11 @@
 # Backgammon Changelog
 
+## v5.1-MP
+**Fix timeout popup + prefer blot-hitting chain moves**
+- **Timeout popup**: replaced the unreliable local-timer approach (both sides counting down independently, prone to drift) with an explicit Firebase signal. When the active player's clock hits 0, they push `timedOut: true` to Firebase. The waiting player's `_listenForState` receives it and shows the Declare Victory prompt immediately — no more drift or missed popups.
+- **Active player unfreeze**: when the waiting player clicks "Wait A Bit Longer", it pushes a state with `turnTimer = TURN_FRAMES`. The active player receives it, clears `_timeoutPending`, and can roll again.
+- **Blot preference in chain moves**: `findChainPath` now collects all valid 2-die paths and prefers the one whose intermediate stop lands on an opponent blot (lone checker). For example, with dice 4+3, if playing 4 first hits a blot on the way, that ordering is chosen automatically.
+
 ## v5.0-MP
 **Fix clock forfeit + larger rating text**
 - Clock forfeit: added `!_timeoutPending` guard to keydown handler, tap/click handler, and Roll button — active player can no longer roll after their time expires

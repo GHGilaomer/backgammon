@@ -408,7 +408,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.0-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.1-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -742,7 +742,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v5.0-MP';
+const VERSION    = 'v5.1-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1205,7 +1205,12 @@ function _listenForState() {
       movesLeft   = toArr(data.movesLeft);
       gameScore.white=data.gameScore.white; gameScore.black=data.gameScore.black;
       openingDice = toArr(data.openingDice);
-      if (data.turnTimer !== undefined) { turnTimer = data.turnTimer; _lastTickSec = -1; }
+      if (data.turnTimer !== undefined) {
+        turnTimer = data.turnTimer;
+        _lastTickSec = -1;
+        // If opponent reset the clock (Wait A Bit Longer), unfreeze the active player
+        if (data.turnTimer > 0 && _timeoutPending) _timeoutPending = false;
+      }
       selectedPoint=null; highlights=[]; combinedHighlights=[]; checkerAnim=null; skipTimer=0;
       if (remoteAnim) { checkerAnim = remoteAnim; playDragSound(); }
 
@@ -1269,6 +1274,32 @@ function _listenForState() {
         playWin(); triggerFireworks(); triggerBillWinAnim(data.winner);
         const remotePts = data.winType === 'backgammon' ? 3 : data.winType === 'gammon' ? 2 : 1;
         _updateElo(data.winner, remotePts); _saveMatchHistory(data.winner, remotePts); _showRematchBtn();
+      }
+
+      // ── Timeout signal — active player ran out of time ────────────
+      if (data.timedOut && !_timeoutPending) {
+        _timeoutPending = true;
+        // I am the waiting player — show declare victory prompt
+        const timedOutName = currentPlayer==='white' ? players.white.name : players.black.name;
+        document.getElementById('timeout-msg').textContent =
+          timedOutName + ' hasn\'t moved in 60 seconds.';
+        document.getElementById('timeout-overlay').style.display = 'block';
+        document.getElementById('timeout-declare-btn').onclick = () => {
+          document.getElementById('timeout-overlay').style.display = 'none';
+          _timeoutPending = false;
+          const opp = currentPlayer==='white'?'black':'white';
+          gameScore[opp] += 3;
+          phase='gameover'; statusMsg=(currentPlayer==='white'?'WHITE':'BLACK')+' FORFEITS!';
+          statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(opp);
+          _gameWinner = opp; _gameWinType = 'backgammon'; _updateElo(opp, 3); _saveMatchHistory(opp, 3); _showRematchBtn();
+          pushState('win');
+        };
+        document.getElementById('timeout-wait-btn').onclick = () => {
+          document.getElementById('timeout-overlay').style.display = 'none';
+          _timeoutPending = false;
+          turnTimer = TURN_FRAMES; // reset clock for another 65s
+          pushState(); // notify active player: clock reset, they may roll again
+        };
       }
 
       // ── Sound events ──────────────────────────────────────────────
@@ -1338,7 +1369,8 @@ function pushState(soundEvent = null) {
     // Also sent for opening_b so Black knows exact landing position of White's die.
     dicePositions: (phase === 'rolled' || phase === 'opening_b')
       ? dicePhysics.map(d => ({x:d.x, y:d.y}))
-      : null
+      : null,
+    timedOut: soundEvent === 'timeout' ? true : null
   });
 }
 
@@ -2260,7 +2292,9 @@ function findChainPath(fromPt, toPt) {
     return false;
   }
 
-  function search(pt, remain) {
+  // Collect ALL valid paths, then prefer the one that hits a blot at an intermediate stop
+  const allPaths = [];
+  function search(pt, remain, pathSoFar) {
     const seen = new Set();
     for (let i = 0; i < remain.length; i++) {
       const d = remain[i];
@@ -2269,20 +2303,30 @@ function findChainPath(fromPt, toPt) {
       if (pt === 0) to = cp === 'white' ? 25 - d : d;
       else to = pt + dir * d;
       // Direct hit?
-      if (to === toPt) return [toPt];
+      if (to === toPt) { allPaths.push([...pathSoFar, toPt]); continue; }
       // Bear-off hit?
-      if (toPt === 25 && canBearOffWith(pt, d)) return [25];
+      if (toPt === 25 && canBearOffWith(pt, d)) { allPaths.push([...pathSoFar, 25]); continue; }
       if (to < 1 || to > 24) continue;
       const tp2 = points[to];
       if (tp2.color && tp2.color !== cp && tp2.count > 1) continue; // blocked
       const rem2 = [...remain]; rem2.splice(i, 1);
       if (rem2.length === 0) continue;
-      const sub = search(to, rem2);
-      if (sub) return [to, ...sub];
+      search(to, rem2, [...pathSoFar, to]);
     }
-    return null;
   }
-  return search(fromPt, movesLeft);
+  search(fromPt, movesLeft, []);
+  if (allPaths.length === 0) return null;
+  // Prefer a path that hits a blot (lone opponent checker) at an intermediate stop
+  const opp = cp === 'white' ? 'black' : 'white';
+  const blotPath = allPaths.find(path => {
+    // intermediate stops are all but last element
+    for (let i = 0; i < path.length - 1; i++) {
+      const mid = path[i];
+      if (mid >= 1 && mid <= 24 && points[mid].color === opp && points[mid].count === 1) return true;
+    }
+    return false;
+  });
+  return blotPath || allPaths[0];
 }
 
 // Execute a chain move: fromPt → path[0] → path[1] → … (N legs)
@@ -3570,30 +3614,11 @@ function update(dt) {
         statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(opp);
         _gameWinner = opp; _gameWinType = 'backgammon'; _updateElo(opp, 3); _saveMatchHistory(opp, 3); _showRematchBtn();
         _timeoutPending = false; pushState('win');
-      } else if (!isMyTurn()) {
-        // Multiplayer — I am the WAITING player: show declare victory prompt
-        const timedOutName = currentPlayer==='white' ? players.white.name : players.black.name;
-        document.getElementById('timeout-msg').textContent =
-          timedOutName + ' hasn\'t moved in 60 seconds.';
-        document.getElementById('timeout-overlay').style.display = 'block';
-        document.getElementById('timeout-declare-btn').onclick = () => {
-          document.getElementById('timeout-overlay').style.display = 'none';
-          _timeoutPending = false;
-          const opp = currentPlayer==='white'?'black':'white';
-          gameScore[opp] += 3;
-          phase='gameover'; statusMsg=(currentPlayer==='white'?'WHITE':'BLACK')+' FORFEITS!';
-          statusTimer=99999; playWin(); triggerFireworks(); triggerBillWinAnim(opp);
-          _gameWinner = opp; _gameWinType = 'backgammon'; _updateElo(opp, 3); _saveMatchHistory(opp, 3); _showRematchBtn();
-          pushState('win');
-        };
-        document.getElementById('timeout-wait-btn').onclick = () => {
-          document.getElementById('timeout-overlay').style.display = 'none';
-          _timeoutPending = false;
-          turnTimer = 3900; // reset clock for another 65s
-          pushState();
-        };
+      } else if (isMyTurn()) {
+        // Multiplayer — I am the ACTIVE player who ran out of time: signal opponent
+        pushState('timeout');
       }
-      // Active player (who ran out of time): just wait — the opponent will decide
+      // Waiting player: popup shown via _listenForState when they receive 'timeout' signal
     }
     // Ticking sound in last 20 seconds — only for the active player
     if (isMyTurn() && turnTimer > 0 && turnTimer <= 1200) {
