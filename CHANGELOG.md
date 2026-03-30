@@ -1,5 +1,14 @@
 # Backgammon Changelog
 
+## v4.8-MP
+**Fix matchmaking stuck — eliminate /pendingMatches/ dependency**
+- Root cause: White was writing to `/pendingMatches/` (a Firebase path not covered by existing rules), causing a silent write failure that left both players stuck searching forever
+- Rewrote `_startMatchListeners` to coordinate entirely through `/matchQueue/` entries (no new Firebase path needed)
+- White writes match info (`pendingWhiteKey`, `pendingWhiteName`, `pendingWhiteRating`, `pendingWhiteFlag`) directly into Black's queue entry — Black's existing `on('value')` watcher wakes up
+- Accept/decline state flows through queue entries: Black writes `blackAccepted`, White writes `declined` into each other's entries
+- White marks own entry with `pendingWhiteKey: 'self'` so other polls skip it during the accept phase
+- `_cleanupStaleRooms`: added 60s grace period for newly created rooms so they aren't immediately deleted before `players` is written
+
 ## v4.7-MP
 **Firebase cleanup — stale queue entries and orphaned rooms**
 - On page load: delete all `/matchQueue/` entries older than 30 seconds

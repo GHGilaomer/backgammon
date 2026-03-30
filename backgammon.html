@@ -408,7 +408,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v4.7-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v4.8-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -742,7 +742,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v4.7-MP';
+const VERSION    = 'v4.8-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -889,7 +889,8 @@ function _cleanupStaleRooms() {
         const d = child.val();
         if (d && d.created && now - d.created > 7200000) child.ref.remove();
         // Also remove rooms with no state and no players (leftover empty rooms)
-        if (d && !d.state && !d.players) child.ref.remove();
+        // Grace period: skip rooms created in the last 60s (still being set up)
+        if (d && !d.state && !d.players && (!d.created || now - d.created > 60000)) child.ref.remove();
       });
     });
   } catch(e) {}
@@ -953,50 +954,63 @@ function _backToSearching(name, flag) {
 }
 
 function _startMatchListeners(name, flag, myKey) {
-  // Watch OWN queue entry — fires when White writes a pendingKey into it
+  // All coordination happens via matchQueue entries — no separate Firebase path needed.
+  // White writes match info directly into Black's queue entry to wake it up.
+  let acceptShown = false;
+
+  // Watch OWN queue entry — fires when White writes pending info into it
   _matchQueueRef.on('value', snap => {
     const d = snap.val();
-    if (!d || !d.pendingKey) return;
-    const pk = d.pendingKey;
-    _matchQueueRef.off('value');
-    if (_matchPollInterval) { clearInterval(_matchPollInterval); _matchPollInterval = null; }
-    _matchQueueRef.remove(); _matchQueueRef = null;
-    // Fetch pending match info and show accept prompt (simultaneous with White)
-    _fbDb.ref('pendingMatches/' + pk).once('value', pSnap => {
-      const pm = pSnap.val();
-      if (!pm) { _backToSearching(name, flag); return; }
-      _showAcceptPrompt(pm.whiteName, pm.whiteRating,
-        () => { _fbDb.ref('pendingMatches/' + pk).update({ blackAccepted: true }); },
-        () => { _fbDb.ref('pendingMatches/' + pk).update({ blackAccepted: false }); }
-      );
-      // Watch pending match for outcome
-      _fbDb.ref('pendingMatches/' + pk).on('value', pmSnap => {
-        const pm2 = pmSnap.val();
-        if (!pm2) return;
-        if (pm2.blackAccepted === false || pm2.whiteAccepted === false) {
-          _fbDb.ref('pendingMatches/' + pk).off('value');
-          if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
+    if (!d) return;
+
+    // Phase 1: White found us — show accept prompt (once)
+    if (d.pendingWhiteKey && !acceptShown) {
+      acceptShown = true;
+      const whiteKey = d.pendingWhiteKey;
+      const oppName = d.pendingWhiteName || '?';
+      const oppRating = d.pendingWhiteRating || 1500;
+      if (_matchPollInterval) { clearInterval(_matchPollInterval); _matchPollInterval = null; }
+      _showAcceptPrompt(oppName, oppRating,
+        () => { // Black accepts — write to own entry; watcher will handle roomCode
+          _fbDb.ref('matchQueue/' + myKey).update({ blackAccepted: true });
+        },
+        () => { // Black declines or times out
+          _matchQueueRef.off('value');
           document.getElementById('accept-room').style.display = 'none';
+          _fbDb.ref('matchQueue/' + myKey).remove(); _matchQueueRef = null;
+          _fbDb.ref('matchQueue/' + whiteKey).update({ declined: true });
           _backToSearching(name, flag);
-          return;
         }
-        if (pm2.roomCode) {
-          // Both accepted — join as Black
-          _fbDb.ref('pendingMatches/' + pk).off('value');
-          if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
-          document.getElementById('accept-room').style.display = 'none';
-          roomCode = pm2.roomCode; myRole = 'black';
-          _fbRoom = _fbDb.ref('rooms/' + roomCode);
-          players.white = { name: pm2.whiteName, flag: pm2.whiteFlag||'', rating: pm2.whiteRating, level: _levelLabel(pm2.whiteRating) };
-          players.black = { name, flag, rating: _myRating, level: _levelLabel(_myRating) };
-          _fbRoom.child('players/black').set({ name, flag, rating: _myRating, level: _levelLabel(_myRating) });
-          _listenForState();
-        }
-      });
-    });
+      );
+      return;
+    }
+
+    // Phase 2: Waiting for outcome after Black accepted
+    if (d.declined) {
+      // White declined while we were in the accept prompt
+      _matchQueueRef.off('value');
+      if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
+      document.getElementById('accept-room').style.display = 'none';
+      _fbDb.ref('matchQueue/' + myKey).remove(); _matchQueueRef = null;
+      _backToSearching(name, flag);
+      return;
+    }
+    if (d.roomCode) {
+      // Both accepted — join as Black
+      _matchQueueRef.off('value');
+      if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
+      document.getElementById('accept-room').style.display = 'none';
+      roomCode = d.roomCode; myRole = 'black'; _isRankedGame = true;
+      _fbRoom = _fbDb.ref('rooms/' + roomCode);
+      players.white = { name: d.pendingWhiteName || '?', flag: d.pendingWhiteFlag || '', rating: d.pendingWhiteRating || 1500, level: _levelLabel(d.pendingWhiteRating || 1500) };
+      players.black = { name, flag, rating: _myRating, level: _levelLabel(_myRating) };
+      _fbRoom.child('players/black').set({ name, flag, rating: _myRating, level: _levelLabel(_myRating) });
+      _fbDb.ref('matchQueue/' + myKey).remove();
+      _listenForState();
+    }
   });
 
-  // Poll queue every 2s — smaller key becomes White
+  // Poll queue every 2s — smaller Firebase key becomes White
   _matchPollInterval = setInterval(async () => {
     if (!_matchQueueRef) { clearInterval(_matchPollInterval); _matchPollInterval = null; return; }
     const now = Date.now();
@@ -1005,7 +1019,7 @@ function _startMatchListeners(name, flag, myKey) {
     snap.forEach(child => {
       if (child.key === myKey) return;
       const d = child.val();
-      if (!d || d.roomCode || d.pendingKey) return; // skip claimed/pending
+      if (!d || d.roomCode || d.pendingWhiteKey || d.declined) return; // skip non-fresh entries
       if (now - d.ts > 30000) return;
       const diff = Math.abs((d.rating || 1500) - _myRating);
       if (diff < bestDiff || (diff === bestDiff && d.ts < bestTs)) {
@@ -1015,74 +1029,78 @@ function _startMatchListeners(name, flag, myKey) {
     if (!bestKey) return;
     if (myKey > bestKey) return;
 
-    // I become White — create pending match, show accept prompt simultaneously
+    // Become White — stop polling and own-entry watcher
     clearInterval(_matchPollInterval); _matchPollInterval = null;
-    if (!_matchQueueRef) return;
     _matchQueueRef.off('value');
-    _matchQueueRef.remove(); _matchQueueRef = null;
 
     const them = snap.child(bestKey).val();
-    const oppName = them.name, oppRating = them.rating || 1500;
+    const oppName = them.name || '?', oppRating = them.rating || 1500, oppFlag = them.flag || '';
 
-    // Create pendingMatch node
-    const pmRef = _fbDb.ref('pendingMatches').push();
-    const pmKey = pmRef.key;
-    await pmRef.set({
-      whiteName: name, whiteFlag: flag, whiteRating: _myRating,
-      blackName: oppName, blackFlag: them.flag||'', blackRating: oppRating,
-      whiteAccepted: null, blackAccepted: null, roomCode: null, ts: Date.now()
+    // Mark own entry as claimed so other polls skip it
+    if (_matchQueueRef) _matchQueueRef.update({ pendingWhiteKey: 'self' });
+
+    // Write match info into Black's entry — this wakes their watcher
+    await _fbDb.ref('matchQueue/' + bestKey).update({
+      pendingWhiteKey: myKey,
+      pendingWhiteName: name,
+      pendingWhiteRating: _myRating,
+      pendingWhiteFlag: flag
     });
-    // Write pendingKey into Black's queue entry — wakes them up
-    await _fbDb.ref('matchQueue/' + bestKey).update({ pendingKey: pmKey });
 
     // Show accept prompt to White immediately
     _showAcceptPrompt(oppName, oppRating,
-      () => pmRef.update({ whiteAccepted: true }),
-      () => pmRef.update({ whiteAccepted: false })
-    );
-
-    // Watch pending match for both decisions
-    pmRef.on('value', pmSnap => {
-      const pm = pmSnap.val();
-      if (!pm) return;
-      if (pm.whiteAccepted === false || pm.blackAccepted === false) {
-        pmRef.off('value'); pmRef.remove();
-        if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
-        document.getElementById('accept-room').style.display = 'none';
-        // Return Black to queue (reset their entry)
-        _fbDb.ref('matchQueue/' + bestKey).update({ pendingKey: null, ts: Date.now() });
-        _backToSearching(name, flag);
-        return;
-      }
-      if (pm.whiteAccepted === true && pm.blackAccepted === true && !pm.roomCode) {
-        // Both accepted — create room
-        pmRef.off('value');
-        if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
-        document.getElementById('accept-room').style.display = 'none';
-        roomCode = _genCode(); _sessionId = Math.random().toString(36).slice(2, 10);
-        _fbRoom = _fbDb.ref('rooms/' + roomCode);
-        myRole = 'white';
-        players.white = { name, flag, rating: _myRating, level: _levelLabel(_myRating) };
-        players.black = { name: oppName, flag: them.flag||'', rating: oppRating, level: _levelLabel(oppRating) };
-        _fbRoom.remove().then(async () => {
-          await _fbRoom.child('created').set(Date.now());
-          await _fbRoom.child('players/white').set({ name, flag, rating: _myRating, level: _levelLabel(_myRating) });
-          pmRef.update({ roomCode }); // Black will see this and join
-          setTimeout(() => pmRef.remove(), 10000);
-          let _joined = false;
-          _fbRoom.child('players/black').on('value', snap2 => {
-            const bl = snap2.val();
-            if (!bl || !bl.name || bl.name === '...' || _joined) return;
-            _joined = true;
-            _fbRoom.child('players/black').off('value');
-            players.black = { name: bl.name, flag: bl.flag||'', rating: bl.rating||1500, level: _levelLabel(bl.rating||1500) };
-            _launchGame(); _listenForState(); pushState();
-          });
-          document.getElementById('waiting-room').style.display = 'block';
-          document.getElementById('waiting-status').textContent = 'Both accepted! Connecting...';
+      () => {
+        // White accepts — watch Black's entry for their decision
+        _fbDb.ref('matchQueue/' + bestKey).on('value', bSnap => {
+          const bd = bSnap.val();
+          if (!bd || bd.blackAccepted === false) {
+            // Black declined or entry deleted
+            _fbDb.ref('matchQueue/' + bestKey).off('value');
+            if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
+            document.getElementById('accept-room').style.display = 'none';
+            if (bd) _fbDb.ref('matchQueue/' + bestKey).remove();
+            if (_matchQueueRef) { _matchQueueRef.remove(); _matchQueueRef = null; }
+            else _fbDb.ref('matchQueue/' + myKey).remove();
+            _backToSearching(name, flag);
+            return;
+          }
+          if (bd.blackAccepted === true && !bd.roomCode) {
+            // Both accepted — create room and write roomCode to Black's entry
+            _fbDb.ref('matchQueue/' + bestKey).off('value');
+            document.getElementById('accept-room').style.display = 'none';
+            roomCode = _genCode(); _sessionId = Math.random().toString(36).slice(2, 10);
+            _fbRoom = _fbDb.ref('rooms/' + roomCode); myRole = 'white';
+            players.white = { name, flag, rating: _myRating, level: _levelLabel(_myRating) };
+            players.black = { name: oppName, flag: oppFlag, rating: oppRating, level: _levelLabel(oppRating) };
+            _fbRoom.remove().then(async () => {
+              await _fbRoom.child('created').set(Date.now());
+              await _fbRoom.child('players/white').set({ name, flag, rating: _myRating, level: _levelLabel(_myRating) });
+              _fbDb.ref('matchQueue/' + bestKey).update({ roomCode }); // Black sees this and joins
+              if (_matchQueueRef) { _matchQueueRef.remove(); _matchQueueRef = null; }
+              else _fbDb.ref('matchQueue/' + myKey).remove();
+              let _joined = false;
+              _fbRoom.child('players/black').on('value', s2 => {
+                const bl = s2.val();
+                if (!bl || !bl.name || bl.name === '...' || _joined) return;
+                _joined = true; _fbRoom.child('players/black').off('value');
+                players.black = { name: bl.name, flag: bl.flag||'', rating: bl.rating||1500, level: _levelLabel(bl.rating||1500) };
+                _launchGame(); _listenForState(); pushState();
+              });
+              document.getElementById('waiting-room').style.display = 'block';
+              document.getElementById('waiting-status').textContent = 'Both accepted! Connecting...';
+            });
+          }
         });
+      },
+      () => {
+        // White declines — notify Black's entry, clean up
+        _fbDb.ref('matchQueue/' + bestKey).update({ declined: true });
+        document.getElementById('accept-room').style.display = 'none';
+        if (_matchQueueRef) { _matchQueueRef.remove(); _matchQueueRef = null; }
+        else _fbDb.ref('matchQueue/' + myKey).remove();
+        _backToSearching(name, flag);
       }
-    });
+    );
   }, 2000);
 }
 
