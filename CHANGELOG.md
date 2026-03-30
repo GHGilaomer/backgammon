@@ -1,5 +1,16 @@
 # Backgammon Changelog
 
+## v4.6-MP
+**Ranked games, simultaneous accept/decline, forfeit prompt, rematch, match history, opponent ratings**
+
+- **Ranked vs invite**: ELO rating updates only for Find a Match games; Create/Join games are unranked
+- **Simultaneous accept/decline**: both players see the accept prompt at the same time via `/pendingMatches/` Firebase node; either declining returns both to the queue
+- **Clock forfeit**: changed from 2 to 3 points; in multiplayer, doesn't auto-declare — instead asks the waiting player "Declare Victory?" or "Wait A Bit Longer"
+- **Opponent rating on board**: level + rating shown in small text on border strips next to opponent's name (multiplayer only)
+- **Match history**: every game result stored in Firebase under `/players/{key}/history/` (opponent name, rating, result, pts, ranked flag)
+- **Rematch button**: appears 2 seconds after a multiplayer game ends; both players can click it to replay the same pairing without going through the lobby
+- **Firebase rules**: add `/pendingMatches/` alongside `/rooms/`, `/players/`, `/matchQueue/`
+
 ## v4.5-MP
 **Accept/Decline prompt, leaderboard, stale cleanup, opponent info**
 - 10-second Accept/Decline prompt shown to both players after a match is found; either declining returns both to the queue
