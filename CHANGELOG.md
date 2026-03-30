@@ -1,5 +1,10 @@
 # Backgammon Changelog
 
+## v5.2-MP
+**Fix timeout popup suppressed on waiting player**
+- Root cause: `_timeoutPending = true` was set unconditionally before the active/waiting branch. Both players' local timers hit 0 at roughly the same time. The waiting player's timer hit 0, set `_timeoutPending = true`, but took no action — then when the Firebase `timedOut` signal arrived, `!_timeoutPending` was already false and the popup was suppressed.
+- Fix: moved `_timeoutPending = true` inside each branch — only the active player (and singleplayer) sets it locally. The waiting player's `_timeoutPending` stays false until they receive the Firebase signal and the popup handler sets it.
+
 ## v5.1-MP
 **Fix timeout popup + prefer blot-hitting chain moves**
 - **Timeout popup**: replaced the unreliable local-timer approach (both sides counting down independently, prone to drift) with an explicit Firebase signal. When the active player's clock hits 0, they push `timedOut: true` to Firebase. The waiting player's `_listenForState` receives it and shows the Declare Victory prompt immediately — no more drift or missed popups.
