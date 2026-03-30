@@ -408,7 +408,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v4.6-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v4.7-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -742,7 +742,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v4.6-MP';
+const VERSION    = 'v4.7-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -862,10 +862,38 @@ let _matchPollInterval = null;
 let _acceptCountdownInterval = null;
 let _pendingMatchInfo = null; // {theirKey, them, name, flag} — held during accept/decline
 
-// ── Stale queue cleanup on tab close ─────────────────────────
+// ── Stale queue cleanup ───────────────────────────────────────
 window.addEventListener('beforeunload', () => {
   if (_matchQueueRef) _matchQueueRef.remove();
 });
+
+function _cleanupStaleQueue() {
+  // On page load: remove all matchQueue entries older than 30s
+  try {
+    _fbDb.ref('matchQueue').once('value', snap => {
+      const now = Date.now();
+      snap.forEach(child => {
+        const d = child.val();
+        if (d && (!d.ts || now - d.ts > 30000)) child.ref.remove();
+      });
+    });
+  } catch(e) {}
+}
+
+function _cleanupStaleRooms() {
+  // On page load: remove rooms with no activity for 2+ hours
+  try {
+    _fbDb.ref('rooms').once('value', snap => {
+      const now = Date.now();
+      snap.forEach(child => {
+        const d = child.val();
+        if (d && d.created && now - d.created > 7200000) child.ref.remove();
+        // Also remove rooms with no state and no players (leftover empty rooms)
+        if (d && !d.state && !d.players) child.ref.remove();
+      });
+    });
+  } catch(e) {}
+}
 
 // ── Leaderboard ───────────────────────────────────────────────
 async function _showLeaderboard() {
@@ -1037,6 +1065,7 @@ function _startMatchListeners(name, flag, myKey) {
         players.white = { name, flag, rating: _myRating, level: _levelLabel(_myRating) };
         players.black = { name: oppName, flag: them.flag||'', rating: oppRating, level: _levelLabel(oppRating) };
         _fbRoom.remove().then(async () => {
+          await _fbRoom.child('created').set(Date.now());
           await _fbRoom.child('players/white').set({ name, flag, rating: _myRating, level: _levelLabel(_myRating) });
           pmRef.update({ roomCode }); // Black will see this and join
           setTimeout(() => pmRef.remove(), 10000);
@@ -1308,6 +1337,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const allOpts = COUNTRY_LIST.map(c=>`<option value="${c.c}">${c.n} ${c.f}</option>`).join('');
   document.getElementById('my-country').innerHTML += pinnedOpt + allOpts;
 
+  // Clean up stale Firebase data on load
+  _fbInit();
+  _cleanupStaleQueue();
+  _cleanupStaleRooms();
+
   const errEl = document.getElementById('mp-error');
   function showErr(msg) { errEl.textContent = msg; }
 
@@ -1331,7 +1365,7 @@ document.addEventListener('DOMContentLoaded', () => {
     players.white = {name, flag, rating: _myRating, level: _levelLabel(_myRating)};
     players.black = {name:'...', flag:'', rating: 1500, level: 'Beginner'};
     // Wipe any stale data from a previous game on this code, then write player
-    _fbRoom.remove().then(() => _fbRoom.child('players/white').set({name, flag, rating: _myRating, level: _levelLabel(_myRating)}));
+    _fbRoom.remove().then(() => { _fbRoom.child('created').set(Date.now()); _fbRoom.child('players/white').set({name, flag, rating: _myRating, level: _levelLabel(_myRating)}); });
     // Show waiting room
     document.getElementById('lobby-section').style.display = 'none';
     document.getElementById('room-code-display').textContent = roomCode;
@@ -3618,7 +3652,7 @@ function loop(now) {
 document.addEventListener('keydown', e => {
   if(e.key==='r'||e.key==='R'){
     if(phase==='title'){ initBoard(); phase='opening'; }
-    else if(phase==='gameover'){ initBoard(); phase='title'; }
+    else if(phase==='gameover'){ if(_fbRoom && myRole==='white'){_fbRoom.remove();_fbRoom=null;} initBoard(); phase='title'; }
     else if(phase==='opening'  && isMyTurn()){ rollOpeningWhite(); }
     else if(phase==='opening_b'&& isMyTurn()){ rollOpeningBlack(); }
     else if(isMyTurn()){ rollDice(); }
@@ -3701,7 +3735,7 @@ function updateRollButton() {
 
 _rollBtn && _rollBtn.addEventListener('click', () => {
   if(phase==='title'){ initBoard(); phase='opening'; }
-  else if(phase==='gameover'){ initBoard(); phase='title'; }
+  else if(phase==='gameover'){ if(_fbRoom && myRole==='white'){_fbRoom.remove();_fbRoom=null;} initBoard(); phase='title'; }
   else if(phase==='opening'  && isMyTurn()){ rollOpeningWhite(); }
   else if(phase==='opening_b'&& isMyTurn()){ rollOpeningBlack(); }
   else if(phase==='idle'     && isMyTurn()){ rollDice(); }

@@ -1,5 +1,13 @@
 # Backgammon Changelog
 
+## v4.7-MP
+**Firebase cleanup — stale queue entries and orphaned rooms**
+- On page load: delete all `/matchQueue/` entries older than 30 seconds
+- On page load: delete `/rooms/` with no activity for 2+ hours, or empty rooms with no state/players
+- Rooms now store a `created` timestamp so age-based cleanup works
+- On game end (press R / Roll button): White deletes the room from Firebase
+- `beforeunload` still removes your queue entry if you close the tab mid-search
+
 ## v4.6-MP
 **Ranked games, simultaneous accept/decline, forfeit prompt, rematch, match history, opponent ratings**
 
