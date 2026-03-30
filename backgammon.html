@@ -531,7 +531,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.4-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.5-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -912,7 +912,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v5.4-MP';
+const VERSION    = 'v5.5-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1490,6 +1490,15 @@ function _listenForState() {
 
     } finally {
       _applyingRemote = false; // always reset, even if an error occurred
+    }
+  });
+
+  // Tie signal: remote player shows "TIE — Roll Again!" while dice are still on screen
+  _fbRoom.child('tieSignal').on('value', snap => {
+    if (!snap.val()) return;
+    // Only the player who did NOT detect the tie needs this (the resolver already set statusMsg)
+    if (phase === 'opening_b_rolling') {
+      statusMsg = 'TIE  —  Roll Again!'; statusTimer = 200;
     }
   });
 }
@@ -3836,10 +3845,17 @@ function update(dt) {
     if (updateDicePhysics()) {
       const wd = openingDice[0], bd = openingDice[1];
       if (wd === bd) {
-        statusMsg = 'TIE  —  Roll Again!'; statusTimer = 140;
-        dicePhysics = []; dice = []; movesLeft = [];
-        phase = 'opening';
-        pushState(); // tell White: tie, roll again
+        statusMsg = 'TIE  —  Roll Again!'; statusTimer = 200;
+        // Signal the remote player immediately so they see the TIE message
+        // while both dice are still visible on their screen
+        if (_fbRoom) _fbRoom.child('tieSignal').set(Date.now());
+        // Hold the dice visible for 1.5s so both players can see the matched numbers
+        setTimeout(() => {
+          if (_fbRoom) _fbRoom.child('tieSignal').remove();
+          dicePhysics = []; dice = []; movesLeft = [];
+          phase = 'opening';
+          pushState(); // full state push: dice cleared, back to opening
+        }, 1500);
       } else {
         currentPlayer = wd > bd ? 'white' : 'black';
         dice = [wd, bd]; movesLeft = [wd, bd];
