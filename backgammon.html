@@ -552,7 +552,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.7-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v5.8-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -792,6 +792,9 @@ let _disclaimerCallback = null;
 // Returns a Promise that resolves once the player has accepted (or already had accepted).
 // Must be called AFTER _registerPlayer() so _myPlayerKey and _fbDb are ready.
 function _checkAndShowDisclaimer() {
+  // localStorage key is PLAYER-SPECIFIC (name+IP) so different people on the
+  // same browser are treated independently — same logic as the rating system.
+  const lsKey = _DISC_LS_KEY + (_myPlayerKey ? '_' + _myPlayerKey : '');
   return new Promise(async resolve => {
     let alreadyAccepted = false;
     // 1. Try Firebase record for this name+IP identity
@@ -800,11 +803,11 @@ function _checkAndShowDisclaimer() {
         const snap = await _fbDb.ref('players/' + _myPlayerKey + '/disclaimerAccepted').once('value');
         alreadyAccepted = !!snap.val();
       } catch(e) {
-        // Firebase unavailable — fall back to localStorage
-        alreadyAccepted = !!localStorage.getItem(_DISC_LS_KEY);
+        // Firebase unavailable — fall back to player-keyed localStorage
+        alreadyAccepted = !!localStorage.getItem(lsKey);
       }
     } else {
-      alreadyAccepted = !!localStorage.getItem(_DISC_LS_KEY);
+      alreadyAccepted = !!localStorage.getItem(lsKey);
     }
 
     if (alreadyAccepted) { resolve(); return; }
@@ -815,7 +818,7 @@ function _checkAndShowDisclaimer() {
         if (_myPlayerKey && _fbDb)
           await _fbDb.ref('players/' + _myPlayerKey).update({ disclaimerAccepted: true });
       } catch(e) {}
-      localStorage.setItem(_DISC_LS_KEY, '1'); // belt-and-suspenders fallback
+      localStorage.setItem(lsKey, '1'); // player-keyed fallback
       resolve();
     };
     document.getElementById('disclaimer-overlay').style.display = 'flex';
@@ -933,7 +936,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v5.7-MP';
+const VERSION    = 'v5.8-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1022,6 +1025,7 @@ function _startRematch() {
   const btn = document.getElementById('rematch-btn');
   if (btn) { btn.textContent = '⚔  REMATCH'; btn.disabled = false; }
   _fbRoom.child('rematch').remove();
+  _fbRoom.child('presence').remove(); // clear stale presence before re-registering in _launchGame
 
   if (myRole === 'white') {
     // White drives: new session ID, launch board, push initial state to Firebase
@@ -1371,6 +1375,43 @@ function _launchGame() {
   if (_ac.state === 'suspended') _ac.resume();
   loadDiceAudioBuffers();
   if (!_loopStarted) { _loopStarted = true; initBoard(); phase = 'opening'; loop(); }
+  // Register presence so the opponent is notified if we disconnect
+  if (myRole && _fbRoom) {
+    const presRef = _fbRoom.child('presence/' + myRole);
+    presRef.set(true);
+    presRef.onDisconnect().set(false); // Firebase auto-writes false when browser closes
+  }
+}
+
+// Called once when the opponent's presence flips to false (browser closed / network lost).
+// Works for all game phases including opening roll.
+function _opponentDisconnected() {
+  if (_timeoutPending || phase === 'gameover') return;
+  _timeoutPending = true;
+  const oppName = myRole === 'white' ? players.black.name : players.white.name;
+  document.getElementById('timeout-msg').textContent =
+    oppName + ' has disconnected from the game.';
+  document.getElementById('timeout-overlay').style.display = 'block';
+  document.getElementById('timeout-declare-btn').onclick = () => {
+    document.getElementById('timeout-overlay').style.display = 'none';
+    _timeoutPending = false;
+    const winner = myRole; // I win
+    const loser  = myRole === 'white' ? 'black' : 'white';
+    gameScore[winner] += 3;
+    phase = 'gameover';
+    statusMsg = (loser === 'white' ? 'WHITE' : 'BLACK') + ' FORFEITS!';
+    statusTimer = 99999; playWin(); triggerFireworks(); triggerBillWinAnim(winner);
+    _gameWinner = winner; _gameWinType = 'backgammon';
+    _updateElo(winner, 3); _saveMatchHistory(winner, 3); _showRematchBtn();
+    pushState('win');
+  };
+  document.getElementById('timeout-wait-btn').onclick = () => {
+    document.getElementById('timeout-overlay').style.display = 'none';
+    _timeoutPending = false;
+    // Give them a fresh 65s when/if they reconnect
+    _setTurnTimer(TURN_FRAMES);
+    pushState();
+  };
 }
 
 function _listenForState() {
@@ -1527,6 +1568,13 @@ function _listenForState() {
     if (phase === 'opening_b_rolling') {
       statusMsg = 'TIE  —  Roll Again!'; statusTimer = 200;
     }
+  });
+
+  // Opponent presence: fires immediately when their browser closes or network drops
+  const oppRole = myRole === 'white' ? 'black' : 'white';
+  _fbRoom.child('presence/' + oppRole).on('value', snap => {
+    // snap.val() === false means their onDisconnect fired (not just "not yet set")
+    if (snap.val() === false) _opponentDisconnected();
   });
 }
 
