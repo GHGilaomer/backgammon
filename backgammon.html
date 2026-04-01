@@ -533,7 +533,7 @@
          style="color:#e8c060; text-decoration:underline; cursor:pointer;">Read the full Terms of Use below</a>
     </p>
 
-    <div class="disc-agree-row">
+    <div class="disc-agree-row" id="disc-agree-row">
       <input type="checkbox" id="disc-check" onchange="document.getElementById('btn-disclaimer-accept').disabled=!this.checked">
       <label for="disc-check">I am 18+ and agree to the Terms of Use.</label>
     </div>
@@ -594,7 +594,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.2-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.3-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1000,7 +1000,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v6.2-MP';
+const VERSION    = 'v6.3-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1837,11 +1837,27 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('who-overlay').style.display = 'flex';
   });
   document.getElementById('disclaimer-lobby-btn').addEventListener('click', () => {
-    // Reset checkbox so user must re-tick, then show overlay (read-only view)
-    const chk = document.getElementById('disc-check');
-    if (chk) { chk.checked = false; document.getElementById('btn-disclaimer-accept').disabled = true; }
-    document.getElementById('disclaimer-overlay').style.display = 'flex';
+    _openDisclaimerViewMode();
   });
+  function _openDisclaimerViewMode() {
+    document.getElementById('disc-agree-row').style.display = 'none';
+    const btn = document.getElementById('btn-disclaimer-accept');
+    btn.disabled = false;
+    btn.textContent = 'CLOSE';
+    btn.onclick = function() {
+      document.getElementById('disclaimer-overlay').style.display = 'none';
+      _restoreDisclaimerNewPlayer();
+    };
+    document.getElementById('disclaimer-overlay').style.display = 'flex';
+  }
+  function _restoreDisclaimerNewPlayer() {
+    document.getElementById('disc-agree-row').style.display = '';
+    const chk = document.getElementById('disc-check');    if (chk) chk.checked = false;
+    const btn = document.getElementById('btn-disclaimer-accept');
+    btn.disabled = true;
+    btn.innerHTML = 'I AGREE &amp; PLAY';
+    btn.onclick = function() { _disclaimerAccept(); };
+  }
 });
 
 // ── Game state ───────────────────────────────────────────────
