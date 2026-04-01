@@ -342,6 +342,14 @@
       letter-spacing: 3px; cursor: pointer; touch-action: manipulation;
     }
     #rematch-btn:hover { background: linear-gradient(135deg, #1e5a7e, #3a9abe); }
+    #lobby-btn {
+      padding: 14px 32px; background: transparent;
+      border: 2px solid #c9983a; border-radius: 12px; color: #e8c060;
+      font-family: 'Courier New', monospace; font-size: 14px; font-weight: bold;
+      letter-spacing: 3px; cursor: pointer; touch-action: manipulation;
+      margin-left: 12px;
+    }
+    #lobby-btn:hover { background: rgba(201,152,58,0.15); }
     #timeout-declare-btn, #timeout-wait-btn {
       display: inline-block; padding: 10px 20px; margin: 4px;
       border-radius: 8px; font-family: 'Courier New', monospace;
@@ -594,7 +602,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.3-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.4-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -643,7 +651,7 @@
 </div>
 <canvas id="c"></canvas>
 <div id="rematch-overlay">
-  <button id="rematch-btn">⚔  REMATCH</button>
+  <button id="rematch-btn">⚔  REMATCH</button><button id="lobby-btn">⌂  LOBBY</button>
 </div>
 <div id="timeout-overlay">
   <p id="timeout-msg">Opponent hasn't moved in 60 seconds.</p>
@@ -1000,7 +1008,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v6.3-MP';
+const VERSION    = 'v6.4-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1832,6 +1840,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('rematch-btn').addEventListener('click', () => { _doRematch(); });
+  document.getElementById('lobby-btn').addEventListener('click', () => { location.reload(); });
 
   document.getElementById('who-we-are-btn').addEventListener('click', () => {
     document.getElementById('who-overlay').style.display = 'flex';
