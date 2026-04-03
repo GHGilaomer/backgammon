@@ -635,7 +635,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.8-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.9-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1048,7 +1048,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.8-MP';
+const VERSION    = 'v7.9-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -2097,19 +2097,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('who-we-are-btn').addEventListener('click', async () => {
     document.getElementById('who-overlay').style.display = 'flex';
-    document.getElementById('who-player-count').textContent = 'Players registered: loading...';
-    try {
-      _fbInit();
-      const snap = await _fbDb.ref('players').once('value');
-      const all = snap.val() || {};
-      // Count unique IPs, excluding the current viewer's own IP
-      const myIp = _myIp || '';
-      const uniqueIps = new Set();
-      Object.values(all).forEach(p => { if (p.ip && p.ip !== myIp) uniqueIps.add(p.ip); });
-      document.getElementById('who-player-count').textContent =
-        'Players registered: ' + uniqueIps.size;
-    } catch(e) {
-      document.getElementById('who-player-count').textContent = 'Players registered: unavailable';
+    // Player count visible to owner only
+    const countEl = document.getElementById('who-player-count');
+    if (_myIp === '73.158.37.40') {
+      countEl.textContent = 'Players registered: loading...';
+      try {
+        _fbInit();
+        const snap = await _fbDb.ref('players').once('value');
+        const all = snap.val() || {};
+        const uniqueIps = new Set();
+        Object.values(all).forEach(p => { if (p.ip && p.ip !== '73.158.37.40') uniqueIps.add(p.ip); });
+        countEl.textContent = 'Players registered: ' + uniqueIps.size;
+      } catch(e) {
+        countEl.textContent = 'Players registered: unavailable';
+      }
+    } else {
+      countEl.style.display = 'none';
     }
   });
   document.getElementById('disclaimer-lobby-btn').addEventListener('click', () => {
