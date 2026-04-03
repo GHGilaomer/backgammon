@@ -357,22 +357,32 @@
     /* ── Early-win overlay ── */
     #early-win-overlay {
       position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);
-      background: #0e0a04; border: 2px solid #c9983a; border-radius: 12px;
-      padding: 20px 26px; z-index: 120; font-family: 'Courier New', monospace;
-      text-align: center; color: #f0ddb0; width: 290px;
-      box-shadow: 0 4px 28px rgba(0,0,0,0.75);
+      background: #0e0a04; border: 2px solid #c9983a; border-radius: 14px;
+      padding: 24px 30px 20px; z-index: 120; font-family: 'Courier New', monospace;
+      text-align: center; color: #f0ddb0; width: 360px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.85);
     }
-    #early-win-msg { font-size: 12px; letter-spacing: 1px; color: #b8a070; margin-bottom: 14px; line-height: 1.55; }
+    #early-win-msg {
+      font-size: 15px; font-weight: bold; letter-spacing: 0.5px;
+      color: #e8c060; margin-bottom: 18px; line-height: 1.5;
+    }
     #early-win-btn {
-      display: block; width: 100%; padding: 10px;
+      display: block; width: 100%; padding: 13px 10px; margin-bottom: 10px;
       background: linear-gradient(135deg, #1a4a2a, #3aaa5a);
       border: none; border-radius: 8px; color: #e0ffe8;
-      font-family: 'Courier New', monospace; font-size: 11px;
-      font-weight: bold; letter-spacing: 2px; cursor: pointer;
+      font-family: 'Courier New', monospace; font-size: 13px;
+      font-weight: bold; letter-spacing: 1px; cursor: pointer; line-height: 1.4;
     }
     #early-win-btn:hover { background: linear-gradient(135deg, #1e5a34, #4aba6a); }
     #early-win-btn:disabled { background: #1a3a20; color: #5a7a5a; cursor: not-allowed; }
-    #early-win-status { font-size: 10px; color: #7a9070; margin-top: 8px; letter-spacing: 1px; min-height: 14px; }
+    #early-play-on-btn {
+      display: block; width: 100%; padding: 11px 10px;
+      background: transparent; border: 1px solid #6a4a20; border-radius: 8px;
+      color: #b8a070; font-family: 'Courier New', monospace; font-size: 13px;
+      font-weight: bold; letter-spacing: 1px; cursor: pointer;
+    }
+    #early-play-on-btn:hover { border-color: #c9983a; color: #e8c060; }
+    #early-win-status { font-size: 11px; color: #7a9070; margin-top: 10px; letter-spacing: 1px; min-height: 14px; }
     #timeout-declare-btn, #timeout-wait-btn {
       display: inline-block; padding: 10px 20px; margin: 4px;
       border-radius: 8px; font-family: 'Courier New', monospace;
@@ -625,7 +635,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.2-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.3-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -679,6 +689,7 @@
 <div id="early-win-overlay" style="display:none">
   <p id="early-win-msg"></p>
   <button id="early-win-btn"></button>
+  <button id="early-play-on-btn">🎲  I want to play until the end</button>
   <p id="early-win-status"></p>
 </div>
 <div id="timeout-overlay">
@@ -1036,7 +1047,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.2-MP';
+const VERSION    = 'v7.3-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1176,33 +1187,36 @@ function _refreshEarlyWinOverlay() {
   }
   const iAmWinner = myRole === _ewPA;
   const winName = _ewPA === 'white' ? players.white.name : players.black.name;
+  const loseName = _ewPA === 'white' ? players.black.name : players.white.name;
   ov.style.display = 'block';
   document.getElementById('early-win-msg').textContent = iAmWinner
-    ? 'You are certain to win — even with the worst dice!'
-    : winName + ' is certain to win this round.';
+    ? 'You are certain to win\u2014even with the worst dice!'
+    : winName + ' is certain to win\u2014even with the worst dice!';
   const btn = document.getElementById('early-win-btn');
-  btn.textContent = iAmWinner ? '\uD83E\uDD1D  Agree to win by 1 point' : '\uD83E\uDD1D  Agree to lose 1 point';
+  btn.textContent = iAmWinner
+    ? '\uD83E\uDD1D  ' + winName + ' wins \u2014 let\u2019s call it 1 point'
+    : '\uD83E\uDD1D  ' + winName + ' wins \u2014 let\u2019s call it 1 point';
   btn.disabled = _ewMyAgreed;
   document.getElementById('early-win-status').textContent = _ewMyAgreed ? 'Waiting for opponent...' : '';
 }
+let _ewListener = null; // holds the Firebase listener so we can detach on play-on
 function _onEarlyWinAgree() {
   if (!myRole || !_fbRoom || _ewMyAgreed || _ewCompleted || !_ewPA) return;
   _ewMyAgreed = true;
-  const btn = document.getElementById('early-win-btn');
-  btn.disabled = true;
-  btn.textContent = '\u2713  Waiting for opponent...';
-  document.getElementById('early-win-status').textContent = '';
+  document.getElementById('early-win-overlay').style.display = 'none';
   _fbRoom.child('earlyWin/' + myRole).set(true);
   if (myRole === _ewPA) {
     // I am the guaranteed winner — watch for opponent to agree, then trigger win
     const oppRole = myRole === 'white' ? 'black' : 'white';
-    _fbRoom.child('earlyWin/' + oppRole).on('value', function ewW(snap) {
+    const oppRef = _fbRoom.child('earlyWin/' + oppRole);
+    _ewListener = function ewW(snap) {
       if (!snap.val()) return;
-      _fbRoom.child('earlyWin/' + oppRole).off('value', ewW);
+      oppRef.off('value', _ewListener); _ewListener = null;
       _triggerEarlyWin();
-    });
+    };
+    oppRef.on('value', _ewListener);
   }
-  // If I am PB (the loser), PA's listener will detect my signal and drive the win
+  // If I am PB (the loser), PA's listener detects my signal and drives the win
 }
 function _triggerEarlyWin() {
   if (_ewCompleted) return;
@@ -2039,6 +2053,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rematch-btn').addEventListener('click', () => { _doRematch(); });
   document.getElementById('lobby-btn').addEventListener('click', () => { location.reload(); });
   document.getElementById('early-win-btn').addEventListener('click', () => { _onEarlyWinAgree(); });
+  document.getElementById('early-play-on-btn').addEventListener('click', () => {
+    // Detach any pending Firebase listener and clear earlyWin node so other player resets too
+    if (_ewListener && _fbRoom && _ewPA) {
+      const oppRole = myRole === 'white' ? 'black' : 'white';
+      _fbRoom.child('earlyWin/' + oppRole).off('value', _ewListener);
+      _ewListener = null;
+    }
+    if (_fbRoom) _fbRoom.child('earlyWin').remove();
+    document.getElementById('early-win-overlay').style.display = 'none';
+    _ewMyAgreed = false; _ewPA = null;
+  });
 
   document.getElementById('who-we-are-btn').addEventListener('click', () => {
     document.getElementById('who-overlay').style.display = 'flex';
