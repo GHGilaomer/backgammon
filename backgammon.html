@@ -625,7 +625,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.9-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.0-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1036,7 +1036,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v6.9-MP';
+const VERSION    = 'v7.0-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1882,7 +1882,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (msg) { errEl.classList.remove('err-flash'); void errEl.offsetWidth; errEl.classList.add('err-flash'); }
   }
 
-  // Auto-fill country from DB when name is typed
+  // Pre-fetch IP on page load so country lookup works immediately on first keystroke
+  _fbInit();
+  fetch('https://api.ipify.org?format=json')
+    .then(r => r.json()).then(j => { _myIp = j.ip; })
+    .catch(() => { _myIp = ''; });
+
+  // Auto-fill country: look up by name+IP (exact player record) on every keystroke.
+  // Debounce 250ms — cancels in-flight lookup if user keeps typing.
   let _cLookupTimer = null;
   document.getElementById('my-name').addEventListener('input', () => {
     clearTimeout(_cLookupTimer);
@@ -1890,22 +1897,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!name) return;
     _cLookupTimer = setTimeout(async () => {
       try {
-        _fbInit();
-        const snap = await _fbDb.ref('playerNames/' + _mkNameKey(name) + '/country').once('value');
+        if (!_myIp) return; // IP not ready yet — skip
+        const key = _mkPlayerKey(name, _myIp);
+        const snap = await _fbDb.ref('players/' + key + '/country').once('value');
         const saved = snap.val();
-        if (saved) {
+        // Only apply if the name field still matches what we searched (user may have kept typing)
+        const current = document.getElementById('my-name').value.trim();
+        if (saved && _mkPlayerKey(current, _myIp) === key) {
           const sel = document.getElementById('my-country');
-          if (!sel.value) sel.value = saved; // only if user hasn't already chosen
+          if (!sel.value) sel.value = saved;
         }
       } catch(e) {}
-    }, 600);
+    }, 250);
   });
-  // Save updated country to DB if player changes dropdown after it was auto-filled
+  // Save updated country to DB if player changes dropdown
   document.getElementById('my-country').addEventListener('change', async () => {
     const name = document.getElementById('my-name').value.trim();
     const flag = document.getElementById('my-country').value;
-    if (!name || !flag) return;
-    try { _fbInit(); _fbDb.ref('playerNames/' + _mkNameKey(name)).update({ country: flag }); } catch(e) {}
+    if (!name || !flag || !_myIp) return;
+    try {
+      const key = _mkPlayerKey(name, _myIp);
+      _fbDb.ref('players/' + key).update({ country: flag });
+      _fbDb.ref('playerNames/' + _mkNameKey(name)).update({ country: flag });
+    } catch(e) {}
   });
 
   // Enter on name or country → Create Game
