@@ -495,6 +495,12 @@
     @keyframes vault-ret-r { to{transform:translateX(62px)} }
     @keyframes vault-ret-t { to{transform:translateY(-54px)} }
     @keyframes vault-ret-b { to{transform:translateY(54px)} }
+    @keyframes vault-swing-close { 0%{transform:rotateY(-130deg)} 100%{transform:rotateY(0deg)} }
+    @keyframes vault-light-dim   { 0%{opacity:1} 100%{opacity:0} }
+    @keyframes vault-ext-r { from{transform:translateX(62px)} to{transform:translateX(0)} }
+    @keyframes vault-ext-t { from{transform:translateY(-54px)} to{transform:translateY(0)} }
+    @keyframes vault-ext-b { from{transform:translateY(54px)}  to{transform:translateY(0)} }
+    @keyframes vault-spin-close { from{transform:rotate(1260deg)} to{transform:rotate(0deg)} }
     #vault-overlay .dial-area {
       position: absolute; top: 92px; left: 50%; transform: translateX(-50%);
     }
@@ -3510,10 +3516,10 @@ function drawDollarBill() {
 }
 
 // ── Safe box (win animation) ───────────────────────────────────
-// Phase durations in frames (~60fps): open door → bill flies in → close door
-const SAFE_OPEN_DUR  = 60;
-const SAFE_FLY_DUR   = 150;  // 2× slower flight
-const SAFE_CLOSE_DUR = 60;
+// Phase durations in frames (~60fps): open door (card flies in during last 150f) → close door
+const SAFE_OPEN_DUR  = 280;  // matches CSS open animation (~4.65s at 60fps)
+const SAFE_FLY_DUR   = 150;  // card flight — starts at (SAFE_OPEN_DUR - SAFE_FLY_DUR), arrives as door fully opens
+const SAFE_CLOSE_DUR = 220;  // close animation (~3.7s) + brief tail
 // openFraction: 0=closed, 1=fully open. Uses cosine to simulate door swinging out.
 function drawSafeBox(cx, cy, openFraction, dialAngle) {
   openFraction = openFraction || 0;
@@ -3603,7 +3609,7 @@ function triggerBillWinAnim(winner) {
     fromX: pos.x + (BEAR_W-10)/2, fromY: pos.y,
     safeX, safeY, winner,
     t: 0,
-    duration: SAFE_OPEN_DUR + SAFE_FLY_DUR + SAFE_CLOSE_DUR,
+    duration: SAFE_OPEN_DUR + SAFE_CLOSE_DUR,
     done: false
   };
   // Position vault overlay at safeX,safeY in canvas → screen coords, scaled down
@@ -3629,18 +3635,45 @@ const canvas = document.getElementById('c');
   wall.parentNode.replaceChild(fresh, wall);
 }
 
+function _vaultStartClose() {
+  const wall = document.getElementById('vault-wall');
+  if (!wall) return;
+  const ease = 'cubic-bezier(0.4,0.05,0.18,1.0)';
+  wall.querySelector('.door-wrap').style.animation    = 'vault-swing-close 1.8s ' + ease + ' forwards';
+  wall.querySelector('.cavity-light').style.animation = 'vault-light-dim 1.5s ease-in forwards';
+  const stagger = 60;
+  setTimeout(() => {
+    if (!wall.isConnected) return;
+    wall.querySelector('.br1').style.animation = 'vault-ext-r .2s ease-in forwards';
+    wall.querySelector('.bt1').style.animation = 'vault-ext-t .2s ease-in forwards';
+    wall.querySelector('.bb1').style.animation = 'vault-ext-b .2s ease-in forwards';
+    setTimeout(() => {
+      wall.querySelector('.br2').style.animation = 'vault-ext-r .2s ease-in forwards';
+      wall.querySelector('.bt2').style.animation = 'vault-ext-t .2s ease-in forwards';
+      wall.querySelector('.bb2').style.animation = 'vault-ext-b .2s ease-in forwards';
+    }, stagger);
+    setTimeout(() => {
+      wall.querySelector('.br3').style.animation = 'vault-ext-r .2s ease-in forwards';
+    }, stagger * 2);
+  }, 1500);
+  setTimeout(() => {
+    if (!wall.isConnected) return;
+    wall.querySelector('.dial-knob').style.animation = 'vault-spin-close 1.5s ease-in-out forwards';
+  }, 1800);
+}
+
 function updateBillSafeAnim(dt) {
   if (!billSafeAnim || billSafeAnim.done) return;
   const prevT = billSafeAnim.t;
   billSafeAnim.t += dt;
-  // Play metal-door sound exactly once when the closing phase begins
-  if (!billSafeAnim._closeSoundPlayed && billSafeAnim.t >= SAFE_OPEN_DUR + SAFE_FLY_DUR && prevT < SAFE_OPEN_DUR + SAFE_FLY_DUR) {
-    billSafeAnim._closeSoundPlayed = true;
+  // When open phase ends: play close sound and trigger real door-close animation
+  if (!billSafeAnim._closeTriggered && billSafeAnim.t >= SAFE_OPEN_DUR && prevT < SAFE_OPEN_DUR) {
+    billSafeAnim._closeTriggered = true;
     playSafeDoorClose();
+    _vaultStartClose();
   }
   if (billSafeAnim.t >= billSafeAnim.duration) {
     billSafeAnim.done = true;
-    // Hide vault overlay after animation completes
     const overlay = document.getElementById('vault-overlay');
     if (overlay) overlay.style.display = 'none';
   }
@@ -3650,12 +3683,13 @@ function drawBillSafeAnim() {
   if (!billSafeAnim) return;
   const a = billSafeAnim;
   const t = Math.min(a.t, a.duration);
-  const D1 = SAFE_OPEN_DUR, D2 = SAFE_FLY_DUR;
-  // Vault safe is rendered as DOM overlay (#vault-overlay); canvas draws only the flying bill
+  const FLIGHT_START = SAFE_OPEN_DUR - SAFE_FLY_DUR;  // card departs so it lands exactly when door fully opens
+  const D2 = SAFE_FLY_DUR;
+  // Vault safe is rendered as DOM overlay (#vault-overlay); canvas draws only the flying card
 
-  // Draw flying bill only during phase 2
-  if (!a.done && t >= D1 && t < D1 + D2) {
-    const p = (t - D1) / D2;
+  // Draw flying card during the approach phase (door swinging open, card arriving)
+  if (!a.done && t >= FLIGHT_START && t < SAFE_OPEN_DUR) {
+    const p = (t - FLIGHT_START) / D2;
     const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
     const scale = 1 - ease * 0.65;
     const bh = 120 * scale, bw = bh * (560/620);
