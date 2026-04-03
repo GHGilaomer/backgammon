@@ -625,7 +625,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.1-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.2-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1036,7 +1036,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.1-MP';
+const VERSION    = 'v7.2-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1132,8 +1132,8 @@ function _simPlayDice(men, dice) {
   }
   return men;
 }
+// Returns true if paColor is certain to win even with worst dice (PA=2,1 / PB=6,6)
 function _simulate1PointWin(paColor) {
-  // PA gets worst dice (2,1); PB gets best dice (6,6 = 4 moves). If PA still wins: certain victory.
   const pbColor = paColor === 'white' ? 'black' : 'white';
   let paMen = _getHomeMen(paColor), pbMen = _getHomeMen(pbColor);
   if (!paMen.length) return false;
@@ -1145,37 +1145,43 @@ function _simulate1PointWin(paColor) {
   }
   return false;
 }
+// Returns the certain winner regardless of whose turn it is, or null if undecided.
+// Checks BOTH directions: current player with worst dice, and opponent with worst dice.
+function _getCertainWinner() {
+  const opp = currentPlayer === 'white' ? 'black' : 'white';
+  if (_simulate1PointWin(currentPlayer)) return currentPlayer; // current player wins even with 2,1
+  if (_simulate1PointWin(opp)) return opp;                     // opponent wins even when they get 2,1 on their own future turns
+  return null;
+}
 function _refreshEarlyWinOverlay() {
   const ov = document.getElementById('early-win-overlay');
   // Hide immediately if not in idle phase — catches dice-throw and move phases
   if (!myRole || phase !== 'idle' || _ewCompleted) {
     if (ov.style.display !== 'none') {
       ov.style.display = 'none';
-      // Reset agree state when leaving idle so next turn starts fresh
       _ewMyAgreed = false; _ewPA = null;
     }
     return;
   }
-  // Hide if not both players fully home yet
+  // Both players must have all remaining men in home board
   if (!_allMenHome('white') || !_allMenHome('black')) { ov.style.display = 'none'; return; }
   if (off.white >= 15 || off.black >= 15) { ov.style.display = 'none'; return; }
-  // Hide (and reset) if the certain-winner changed (new turn)
-  const simWinner = _simulate1PointWin(currentPlayer) ? currentPlayer : null;
+  const simWinner = _getCertainWinner();
   if (!simWinner) { ov.style.display = 'none'; _ewPA = null; _ewMyAgreed = false; return; }
-  // New turn: reset agree state
+  // New certain winner (turn changed): reset agree state
   if (_ewPA !== simWinner) {
     _ewPA = simWinner;
     _ewMyAgreed = false;
     if (_fbRoom) _fbRoom.child('earlyWin').remove();
   }
-  const iAmPA = myRole === _ewPA;
-  const paName = _ewPA === 'white' ? players.white.name : players.black.name;
+  const iAmWinner = myRole === _ewPA;
+  const winName = _ewPA === 'white' ? players.white.name : players.black.name;
   ov.style.display = 'block';
-  document.getElementById('early-win-msg').textContent = iAmPA
+  document.getElementById('early-win-msg').textContent = iAmWinner
     ? 'You are certain to win — even with the worst dice!'
-    : paName + ' is certain to win this round.';
+    : winName + ' is certain to win this round.';
   const btn = document.getElementById('early-win-btn');
-  btn.textContent = iAmPA ? '\uD83E\uDD1D  Agree to win by 1 point' : '\uD83E\uDD1D  Agree to lose 1 point';
+  btn.textContent = iAmWinner ? '\uD83E\uDD1D  Agree to win by 1 point' : '\uD83E\uDD1D  Agree to lose 1 point';
   btn.disabled = _ewMyAgreed;
   document.getElementById('early-win-status').textContent = _ewMyAgreed ? 'Waiting for opponent...' : '';
 }
