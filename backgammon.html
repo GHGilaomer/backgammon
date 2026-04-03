@@ -238,6 +238,10 @@
     #room-code-display { font-size: 42px; font-weight: bold; letter-spacing: 12px; color: #e8c060; margin: 10px 0 6px; }
     #waiting-status { font-size: 12px; color: #888; letter-spacing: 1px; }
     #mp-error { color: #ff7070; font-size: 12px; text-align: center; margin-top: 8px; min-height: 16px; }
+    @keyframes err-flash {
+      0%,100% { opacity:1; } 20% { opacity:0.08; } 50% { opacity:1; } 75% { opacity:0.08; }
+    }
+    .err-flash { animation: err-flash 0.75s ease; }
     #find-btn {
       display: block; width: 100%; padding: 13px; margin-bottom: 8px;
       background: linear-gradient(135deg, #0a3a5a, #1a7aaa);
@@ -602,7 +606,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.7-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v6.8-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1008,7 +1012,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v6.7-MP';
+const VERSION    = 'v6.8-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1029,6 +1033,9 @@ function _levelLabel(r) {
 function _mkPlayerKey(name, ip) {
   const n = name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'player';
   return n + '_' + ip.replace(/\./g, '_');
+}
+function _mkNameKey(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'player';
 }
 
 function _updateRatingDisplay() {
@@ -1418,14 +1425,16 @@ async function _registerPlayer(name) {
     const ref = _fbDb.ref('players/' + _myPlayerKey);
     const snap = await ref.once('value');
     const rec = snap.val();
+    const flag = document.getElementById('my-country').value || '';
     if (rec) {
       _myRating = rec.rating || 1500;
       _myGamesPlayed = rec.gamesPlayed || 0;
-      ref.update({ name, lastSeen: Date.now() });
+      ref.update({ name, lastSeen: Date.now(), ...(flag && { country: flag }) });
     } else {
       _myRating = 1500; _myGamesPlayed = 0;
-      ref.set({ name, ip: _myIp, rating: 1500, gamesPlayed: 0, lastSeen: Date.now() });
+      ref.set({ name, ip: _myIp, rating: 1500, gamesPlayed: 0, lastSeen: Date.now(), ...(flag && { country: flag }) });
     }
+    if (flag) _fbDb.ref('playerNames/' + _mkNameKey(name)).update({ country: flag });
     _updateRatingDisplay();
   } catch(e) {
     // Firebase rules not yet updated — game still works, rating features disabled
@@ -1745,7 +1754,36 @@ document.addEventListener('DOMContentLoaded', () => {
   _cleanupStaleRooms();
 
   const errEl = document.getElementById('mp-error');
-  function showErr(msg) { errEl.textContent = msg; }
+  function showErr(msg) {
+    errEl.textContent = msg;
+    if (msg) { errEl.classList.remove('err-flash'); void errEl.offsetWidth; errEl.classList.add('err-flash'); }
+  }
+
+  // Auto-fill country from DB when name is typed
+  let _cLookupTimer = null;
+  document.getElementById('my-name').addEventListener('input', () => {
+    clearTimeout(_cLookupTimer);
+    const name = document.getElementById('my-name').value.trim();
+    if (!name) return;
+    _cLookupTimer = setTimeout(async () => {
+      try {
+        _fbInit();
+        const snap = await _fbDb.ref('playerNames/' + _mkNameKey(name) + '/country').once('value');
+        const saved = snap.val();
+        if (saved) {
+          const sel = document.getElementById('my-country');
+          if (!sel.value) sel.value = saved; // only if user hasn't already chosen
+        }
+      } catch(e) {}
+    }, 600);
+  });
+  // Save updated country to DB if player changes dropdown after it was auto-filled
+  document.getElementById('my-country').addEventListener('change', async () => {
+    const name = document.getElementById('my-name').value.trim();
+    const flag = document.getElementById('my-country').value;
+    if (!name || !flag) return;
+    try { _fbInit(); _fbDb.ref('playerNames/' + _mkNameKey(name)).update({ country: flag }); } catch(e) {}
+  });
 
   // Enter on name or country → Create Game
   ['my-name', 'my-country'].forEach(id => {
