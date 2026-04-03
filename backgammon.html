@@ -635,7 +635,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.7-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.8-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -872,6 +872,7 @@
       <li>Scoring system based on your name and IP address</li>
       <li>Developed in California</li>
       <li>Contact: <a href="mailto:Backgammon.California@gmail.com">Backgammon.California@gmail.com</a></li>
+      <li id="who-player-count" style="color:#e8c060;">Players registered: —</li>
     </ul>
     <button id="close-who-btn" onclick="document.getElementById('who-overlay').style.display='none'">CLOSE</button>
   </div>
@@ -1047,7 +1048,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.7-MP';
+const VERSION    = 'v7.8-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1376,9 +1377,9 @@ function _showAcceptPrompt(opponentName, opponentRating, onAccept, onDecline) {
   document.getElementById('searching-room').style.display = 'none';
   document.getElementById('waiting-room').style.display = 'none';
   document.getElementById('accept-opponent').textContent =
-    '⚔  ' + opponentName + '  (' + _levelLabel(opponentRating) + '  ·  ' + opponentRating + ')';
+    '⚔  Play ' + opponentName + '  (' + _levelLabel(opponentRating) + '  ·  ' + opponentRating + ')';
   document.getElementById('accept-room').style.display = 'block';
-  let secs = 10;
+  let secs = 20;
   document.getElementById('accept-countdown').textContent = secs;
   _acceptCountdownInterval = setInterval(() => {
     secs--;
@@ -2094,8 +2095,22 @@ document.addEventListener('DOMContentLoaded', () => {
     _ewMyAgreed = false; _ewPA = null;
   });
 
-  document.getElementById('who-we-are-btn').addEventListener('click', () => {
+  document.getElementById('who-we-are-btn').addEventListener('click', async () => {
     document.getElementById('who-overlay').style.display = 'flex';
+    document.getElementById('who-player-count').textContent = 'Players registered: loading...';
+    try {
+      _fbInit();
+      const snap = await _fbDb.ref('players').once('value');
+      const all = snap.val() || {};
+      // Count unique IPs, excluding the current viewer's own IP
+      const myIp = _myIp || '';
+      const uniqueIps = new Set();
+      Object.values(all).forEach(p => { if (p.ip && p.ip !== myIp) uniqueIps.add(p.ip); });
+      document.getElementById('who-player-count').textContent =
+        'Players registered: ' + uniqueIps.size;
+    } catch(e) {
+      document.getElementById('who-player-count').textContent = 'Players registered: unavailable';
+    }
   });
   document.getElementById('disclaimer-lobby-btn').addEventListener('click', () => {
     _openDisclaimerViewMode();
