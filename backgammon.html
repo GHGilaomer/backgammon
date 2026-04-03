@@ -635,7 +635,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.4-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.5-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1047,7 +1047,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.4-MP';
+const VERSION    = 'v7.5-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1636,11 +1636,19 @@ function _launchGame() {
   if (_ac.state === 'suspended') _ac.resume();
   loadDiceAudioBuffers();
   if (!_loopStarted) { _loopStarted = true; initBoard(); phase = 'opening'; loop(); }
-  // Register presence so the opponent is notified if we disconnect
+  // Register presence so the opponent is notified if we disconnect.
+  // Also re-register whenever Firebase reconnects (handles brief network glitches).
   if (myRole && _fbRoom) {
     const presRef = _fbRoom.child('presence/' + myRole);
     presRef.set(true);
-    presRef.onDisconnect().set(false); // Firebase auto-writes false when browser closes
+    presRef.onDisconnect().set(false);
+    _fbDb.ref('.info/connected').on('value', snap => {
+      if (snap.val() === true) {
+        // Back online — re-assert presence and re-arm onDisconnect
+        presRef.set(true);
+        presRef.onDisconnect().set(false);
+      }
+    });
   }
 }
 
@@ -1831,11 +1839,25 @@ function _listenForState() {
     }
   });
 
-  // Opponent presence: fires immediately when their browser closes or network drops
+  // Opponent presence: 8-second grace period before declaring disconnect,
+  // in case it was a brief network glitch and they reconnect.
   const oppRole = myRole === 'white' ? 'black' : 'white';
+  let _disconnectTimer = null;
   _fbRoom.child('presence/' + oppRole).on('value', snap => {
-    // snap.val() === false means their onDisconnect fired (not just "not yet set")
-    if (snap.val() === false) _opponentDisconnected();
+    if (snap.val() === false) {
+      if (!_disconnectTimer) {
+        _disconnectTimer = setTimeout(() => {
+          _disconnectTimer = null;
+          // Re-read presence before firing — they may have already reconnected
+          _fbRoom.child('presence/' + oppRole).once('value', s => {
+            if (s.val() === false) _opponentDisconnected();
+          });
+        }, 8000);
+      }
+    } else {
+      // Presence restored — cancel pending disconnect
+      if (_disconnectTimer) { clearTimeout(_disconnectTimer); _disconnectTimer = null; }
+    }
   });
 }
 
