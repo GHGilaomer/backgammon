@@ -635,7 +635,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.3-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.4-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -1047,7 +1047,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.3-MP';
+const VERSION    = 'v7.4-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -2552,23 +2552,30 @@ const PIPS = {
   6:[[-1,-1],[1,-1],[-1,0],[1,0],[-1,1],[1,1]],
 };
 
-function drawDie(cx, cy, value, used) {
+// marks: 0=clean, 1=slash (/), 2=cross (X)
+function drawDie(cx, cy, value, used, marks) {
+  if (marks === undefined) marks = used ? 2 : 0;
   const x = cx - DIE_SZ/2, y = cy - DIE_SZ/2;
   ctx.save();
   ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=8; ctx.shadowOffsetX=2; ctx.shadowOffsetY=3;
   const fg = ctx.createLinearGradient(x, y, x+DIE_SZ, y+DIE_SZ);
-  if (used) { fg.addColorStop(0,'#5a5a5a'); fg.addColorStop(1,'#3a3a3a'); }
-  else      { fg.addColorStop(0,'#fdf6e3'); fg.addColorStop(1,'#e8d9b0'); }
+  if (marks === 2) { fg.addColorStop(0,'#5a5a5a'); fg.addColorStop(1,'#3a3a3a'); }
+  else             { fg.addColorStop(0,'#fdf6e3'); fg.addColorStop(1,'#e8d9b0'); }
   roundRect(x,y,DIE_SZ,DIE_SZ,DIE_R); ctx.fillStyle=fg; ctx.fill(); ctx.restore();
   roundRect(x,y,DIE_SZ,DIE_SZ,DIE_R);
-  ctx.strokeStyle=used?'#2a2a2a':'#b09050'; ctx.lineWidth=1.5; ctx.stroke();
-  ctx.fillStyle=used?'#1a1a1a':'#1a0a00';
+  ctx.strokeStyle=(marks===2)?'#2a2a2a':'#b09050'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle=(marks===2)?'#1a1a1a':'#1a0a00';
   for (const [col,row] of PIPS[value]) {
     ctx.beginPath(); ctx.arc(cx+col*PIP_OFF, cy+row*PIP_OFF, PIP_R, 0, Math.PI*2); ctx.fill();
   }
-  if (used) {
-    ctx.strokeStyle='rgba(180,40,40,0.7)'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(x+6,y+DIE_SZ-6); ctx.lineTo(x+DIE_SZ-6,y+6); ctx.stroke();
+  if (marks >= 1) {
+    // Slash: bottom-left to top-right
+    ctx.strokeStyle='rgba(200,40,40,0.85)'; ctx.lineWidth=2.5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(x+7, y+DIE_SZ-7); ctx.lineTo(x+DIE_SZ-7, y+7); ctx.stroke();
+  }
+  if (marks >= 2) {
+    // Cross: add top-left to bottom-right
+    ctx.beginPath(); ctx.moveTo(x+7, y+7); ctx.lineTo(x+DIE_SZ-7, y+DIE_SZ-7); ctx.stroke();
   }
 }
 
@@ -2606,34 +2613,20 @@ function drawDicePhysics() {
         drawDieRotated(die.x, die.y, flickerVal, die.rotation);
       }
     } else {
-      // Rolled: show final value
-      let used = false;
+      // Rolled: show final value with slash/cross marks
+      let marks = 0;
       if (isDoubles) {
         const usedCount = 4 - movesLeft.length;
-        // Each physical die represents 2 of the 4 identical moves
-        // die 0: used once ≥2 moves consumed; die 1: used once all 4 consumed
-        used = (i === 0) ? usedCount >= 2 : usedCount >= 4;
+        // Die 0: slash after 1st use, cross after 2nd use
+        // Die 1: slash after 3rd use, cross after 4th use
+        if (i === 0) marks = usedCount >= 2 ? 2 : usedCount >= 1 ? 1 : 0;
+        else         marks = usedCount >= 4 ? 2 : usedCount >= 3 ? 1 : 0;
       } else {
-        // For normal dice, check if this die's value is still in movesLeft
         const rem = [...movesLeft];
         const idxR = rem.indexOf(die.value);
-        if (idxR === -1) used = true;
-        else rem.splice(idxR, 1);
+        marks = (idxR === -1) ? 2 : 0;
       }
-      drawDie(die.x, die.y, die.value, used);
-
-      // For doubles: show remaining moves count below each die
-      if (isDoubles) {
-        const remainCount = movesLeft.length;
-        const totalCount = dice.length;
-        // Show "×N" indicator
-        ctx.save();
-        ctx.fillStyle = '#ffdd66';
-        ctx.font = 'bold 13px Courier New';
-        ctx.textAlign = 'center';
-        ctx.fillText('×' + remainCount, die.x, die.y + DIE_SZ/2 + 14);
-        ctx.restore();
-      }
+      drawDie(die.x, die.y, die.value, marks === 2, marks);
     }
   }
 
