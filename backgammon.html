@@ -641,7 +641,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v7.9-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.0-MP</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
       <label class="wlabel">YOUR NAME</label>
@@ -995,7 +995,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v7.9-MP';
+const VERSION    = 'v8.0-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -3460,7 +3460,7 @@ function drawDollarBill() {
 // Phase durations in frames (~60fps): open door (card flies in during last 150f) → close door
 const SAFE_OPEN_DUR  = 280;  // matches CSS open animation (~4.65s at 60fps)
 const SAFE_FLY_DUR   = 150;  // card flight — starts at (SAFE_OPEN_DUR - SAFE_FLY_DUR), arrives as door fully opens
-const SAFE_CLOSE_DUR = 220;  // close animation (~3.7s) + brief tail
+const SAFE_CLOSE_DUR = 300;  // close animation (~5s) + brief tail
 // openFraction: 0=closed, 1=fully open. Uses cosine to simulate door swinging out.
 function drawSafeBox(cx, cy, openFraction, dialAngle) {
   openFraction = openFraction || 0;
@@ -3581,27 +3581,28 @@ function _vaultStartClose() {
   const wall = document.getElementById('vault-wall');
   if (!wall) return;
   const ease = 'cubic-bezier(0.4,0.05,0.18,1.0)';
-  wall.querySelector('.door-wrap').style.animation    = 'vault-swing-close 1.8s ' + ease + ' forwards';
-  wall.querySelector('.cavity-light').style.animation = 'vault-light-dim 1.5s ease-in forwards';
-  const stagger = 60;
+  wall.querySelector('.door-wrap').style.animation    = 'vault-swing-close 2.6s ' + ease + ' forwards';
+  wall.querySelector('.cavity-light').style.animation = 'vault-light-dim 2.3s ease-in forwards';
   setTimeout(() => {
     if (!wall.isConnected) return;
-    wall.querySelector('.br1').style.animation = 'vault-ext-r .2s ease-in forwards';
-    wall.querySelector('.bt1').style.animation = 'vault-ext-t .2s ease-in forwards';
-    wall.querySelector('.bb1').style.animation = 'vault-ext-b .2s ease-in forwards';
+    wall.querySelector('.br1').style.animation = 'vault-ext-r .28s ease-in forwards';
+    wall.querySelector('.bt1').style.animation = 'vault-ext-t .28s ease-in forwards';
+    wall.querySelector('.bb1').style.animation = 'vault-ext-b .28s ease-in forwards';
     setTimeout(() => {
-      wall.querySelector('.br2').style.animation = 'vault-ext-r .2s ease-in forwards';
-      wall.querySelector('.bt2').style.animation = 'vault-ext-t .2s ease-in forwards';
-      wall.querySelector('.bb2').style.animation = 'vault-ext-b .2s ease-in forwards';
-    }, stagger);
+      if (!wall.isConnected) return;
+      wall.querySelector('.br2').style.animation = 'vault-ext-r .28s ease-in forwards';
+      wall.querySelector('.bt2').style.animation = 'vault-ext-t .28s ease-in forwards';
+      wall.querySelector('.bb2').style.animation = 'vault-ext-b .28s ease-in forwards';
+    }, 80);
     setTimeout(() => {
-      wall.querySelector('.br3').style.animation = 'vault-ext-r .2s ease-in forwards';
-    }, stagger * 2);
-  }, 1500);
+      if (!wall.isConnected) return;
+      wall.querySelector('.br3').style.animation = 'vault-ext-r .28s ease-in forwards';
+    }, 160);
+  }, 2300);
   setTimeout(() => {
     if (!wall.isConnected) return;
-    wall.querySelector('.dial-knob').style.animation = 'vault-spin-close 1.5s ease-in-out forwards';
-  }, 1800);
+    wall.querySelector('.dial-knob').style.animation = 'vault-spin-close 2.0s ease-in-out forwards';
+  }, 2700);
 }
 
 function updateBillSafeAnim(dt) {
