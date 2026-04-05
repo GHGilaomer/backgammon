@@ -4259,35 +4259,37 @@ function drawBoard() {
   }
   ctx.restore();
   // ── Player flag + name in top/bottom border strips ──
-  // Layout: [flag] [name large] — flag right-aligned, name fills the strip left of flag
-  // Level·rating rotated 90° in the right border strip at each player's corner
+  // Layout: name right-aligned just left of flag | [flag] — both in the 18px horizontal strip
+  // Level·rating rotated 90° in the right border strip, font fills the 18px width
   const _brdFW=26, _brdFH=17;
   const _brdRight = BX + BW - 4;
-  const _brdFlagX = _brdRight - _brdFW; // flag left edge
+  const _brdFlagX = _brdRight - _brdFW;      // flag left edge
+  const _brdNameX = _brdFlagX - 6;            // name right-aligns here
+  const _brdRatingCX = BX + BW - BORDER/2;   // center of right border strip (x)
   // Black — top border
   drawCanvasFlag(players.black.flag, _brdFlagX, BY+1, _brdFW, _brdFH);
-  ctx.fillStyle='#a8aae8'; ctx.font='bold 14px Courier New'; ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText(players.black.name.substring(0,12), BX + BORDER + 4, BY + BORDER/2);
-  // Black rating — rotated in right border, top corner
+  ctx.fillStyle='#a8aae8'; ctx.font='bold 14px Courier New'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText(players.black.name.substring(0,12), _brdNameX, BY + BORDER/2);
+  // Black rating — rotated in right border, upper quarter
   if (myRole && players.black.rating) {
     ctx.save();
-    ctx.translate(BX + BW - BORDER/2, BY + BORDER + 40);
+    ctx.translate(_brdRatingCX, BY + BORDER + 50);
     ctx.rotate(Math.PI/2);
-    ctx.font='8px Courier New'; ctx.fillStyle='rgba(168,170,232,0.85)';
+    ctx.font='11px Courier New'; ctx.fillStyle='rgba(168,170,232,0.85)';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(_levelLabel(players.black.rating) + '  ' + players.black.rating, 0, 0);
     ctx.restore();
   }
   // White — bottom border
   drawCanvasFlag(players.white.flag, _brdFlagX, IY+IH+1, _brdFW, _brdFH);
-  ctx.fillStyle='#d0b880'; ctx.font='bold 14px Courier New'; ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText(players.white.name.substring(0,12), BX + BORDER + 4, IY + IH + BORDER/2);
-  // White rating — rotated in right border, bottom corner
+  ctx.fillStyle='#d0b880'; ctx.font='bold 14px Courier New'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText(players.white.name.substring(0,12), _brdNameX, IY + IH + BORDER/2);
+  // White rating — rotated in right border, lower quarter
   if (myRole && players.white.rating) {
     ctx.save();
-    ctx.translate(BX + BW - BORDER/2, IY + IH - 40);
+    ctx.translate(_brdRatingCX, IY + IH - 50);
     ctx.rotate(Math.PI/2);
-    ctx.font='8px Courier New'; ctx.fillStyle='rgba(208,184,128,0.85)';
+    ctx.font='11px Courier New'; ctx.fillStyle='rgba(208,184,128,0.85)';
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(_levelLabel(players.white.rating) + '  ' + players.white.rating, 0, 0);
     ctx.restore();
