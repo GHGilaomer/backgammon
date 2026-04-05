@@ -4258,20 +4258,20 @@ function drawBoard() {
     ctx.fillText(VERSION, 0, 0);
   }
   ctx.restore();
-  // ── Player flag + name + rating in top/bottom border strips ──
-  // Layout: [name (left-aligned from BX+8)] ... [flag] [level · rating] (right-aligned)
+  // ── Player flag + name in top/bottom border strips ──
+  // Layout: [flag] [name large] — flag right-aligned, name fills the strip left of flag
+  // Level·rating rotated 90° in the right border strip at each player's corner
   const _brdFW=26, _brdFH=17;
   const _brdRight = BX + BW - 4;
-  const _brdNameL = BX + 8; // name starts at left edge of border
-  // Rating text sits to the right of the flag
-  const _brdRatingX = _brdRight + 2;
+  const _brdFlagX = _brdRight - _brdFW; // flag left edge
   // Black — top border
+  drawCanvasFlag(players.black.flag, _brdFlagX, BY+1, _brdFW, _brdFH);
   ctx.fillStyle='#a8aae8'; ctx.font='bold 14px Courier New'; ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText(players.black.name.substring(0,12), _brdNameL, BY+10);
-  drawCanvasFlag(players.black.flag, _brdRight - _brdFW, BY+1, _brdFW, _brdFH);
+  ctx.fillText(players.black.name.substring(0,12), BX + BORDER + 4, BY + BORDER/2);
+  // Black rating — rotated in right border, top corner
   if (myRole && players.black.rating) {
     ctx.save();
-    ctx.translate(_brdRatingX + 8, BY + IH/2 + BORDER/2);
+    ctx.translate(BX + BW - BORDER/2, BY + BORDER + 40);
     ctx.rotate(Math.PI/2);
     ctx.font='8px Courier New'; ctx.fillStyle='rgba(168,170,232,0.85)';
     ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -4279,12 +4279,13 @@ function drawBoard() {
     ctx.restore();
   }
   // White — bottom border
+  drawCanvasFlag(players.white.flag, _brdFlagX, IY+IH+1, _brdFW, _brdFH);
   ctx.fillStyle='#d0b880'; ctx.font='bold 14px Courier New'; ctx.textAlign='left'; ctx.textBaseline='middle';
-  ctx.fillText(players.white.name.substring(0,12), _brdNameL, IY+IH+10);
-  drawCanvasFlag(players.white.flag, _brdRight - _brdFW, IY+IH+1, _brdFW, _brdFH);
+  ctx.fillText(players.white.name.substring(0,12), BX + BORDER + 4, IY + IH + BORDER/2);
+  // White rating — rotated in right border, bottom corner
   if (myRole && players.white.rating) {
     ctx.save();
-    ctx.translate(_brdRatingX + 8, IY + IH + BORDER/2);
+    ctx.translate(BX + BW - BORDER/2, IY + IH - 40);
     ctx.rotate(Math.PI/2);
     ctx.font='8px Courier New'; ctx.fillStyle='rgba(208,184,128,0.85)';
     ctx.textAlign='center'; ctx.textBaseline='middle';
