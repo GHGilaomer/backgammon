@@ -691,7 +691,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.33-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.34-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -1110,7 +1110,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.33-MP';
+const VERSION    = 'v8.34-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1553,6 +1553,9 @@ async function _showLeaderboard() {
 
 // ── Accept / Decline flow ─────────────────────────────────────
 function _showAcceptPrompt(opponentName, opponentRating, onAccept, onDecline) {
+  // Cancel AI fallback timer — a human match was found
+  if (_aiSearchTimer) { clearTimeout(_aiSearchTimer); _aiSearchTimer = null; }
+  if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
   document.getElementById('searching-room').style.display = 'none';
   document.getElementById('waiting-room').style.display = 'none';
   document.getElementById('accept-opponent').textContent =
@@ -1797,11 +1800,16 @@ async function _findMatch(name, flag) {
     const _filled = _f.getBoundingClientRect().height / _f.parentElement.getBoundingClientRect().height * 100;
     _f.classList.remove('filling'); _f.style.transition='none'; _f.style.height=_filled.toFixed(1)+'%';
     const opp = _pickAIOpponent();
-    document.getElementById('searching-status').textContent = '✓  Matched with ' + opp.name + '!';
+    const oppRating = _loadAIRating(opp.name);
+    // Show the same accept prompt as human matches — AI accepts after 1-2s
+    _showAcceptPrompt(opp.name, oppRating,
+      () => { _startAIGame(opp.name, opp.flag, oppRating, 'medium', name, flag); },
+      () => { _showLobby(); }
+    );
+    // AI "accepts" automatically after short delay (simulates a real player)
     setTimeout(() => {
-      if (_matchQueueRef) _cancelMatchSearch(); // safety check
-      _startAIGame(opp.name, opp.flag, _loadAIRating(opp.name), 'medium', name, flag);
-    }, 2000);
+      document.getElementById('accept-btn').click();
+    }, 1000 + Math.random() * 1000);
   }, _searchDuration);
   _startMatchListeners(name, flag, myKey);
 }
