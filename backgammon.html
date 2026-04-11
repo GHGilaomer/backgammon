@@ -691,7 +691,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.30-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.31-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -1110,7 +1110,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.30-MP';
+const VERSION    = 'v8.31-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -3554,21 +3554,6 @@ const _OPENING_BOOK = {
     '5,5': [{from:13,to:8},{from:13,to:8},{from:8,to:3},{from:8,to:3}],
     '5,6': [{from:13,to:8},{from:24,to:18}],
     '6,6': [{from:24,to:18},{from:24,to:18},{from:13,to:7},{from:13,to:7}],
-    '2,1': [{from:13,to:11},{from:11,to:10}],
-    '3,1': [{from:8,to:5},{from:6,to:5}],
-    '4,1': [{from:13,to:9},{from:9,to:8}],
-    '5,1': [{from:13,to:8},{from:24,to:23}],
-    '6,1': [{from:13,to:7},{from:8,to:7}],
-    '3,2': [{from:13,to:10},{from:10,to:8}],
-    '4,2': [{from:8,to:4},{from:6,to:4}],
-    '5,2': [{from:13,to:8},{from:13,to:11}],
-    '6,2': [{from:13,to:11},{from:24,to:18}],
-    '4,3': [{from:13,to:10},{from:24,to:20}],
-    '5,3': [{from:6,to:3},{from:8,to:3}],
-    '6,3': [{from:13,to:10},{from:24,to:18}],
-    '5,4': [{from:13,to:8},{from:13,to:9}],
-    '6,4': [{from:24,to:18},{from:13,to:9}],
-    '6,5': [{from:13,to:8},{from:24,to:18}],
   },
   defensive: {
     '1,1': [{from:6,to:5},{from:6,to:5},{from:24,to:23},{from:23,to:21}],
@@ -3607,19 +3592,6 @@ const _OPENING_BOOK = {
     '6,4': [{from:24,to:18},{from:24,to:20}],
     '6,5': [{from:24,to:18},{from:18,to:13}],
     '6,6': [{from:24,to:18},{from:24,to:18},{from:13,to:7},{from:13,to:7}],
-    '3,1': [{from:8,to:5},{from:6,to:5}],
-    '4,1': [{from:24,to:20},{from:24,to:23}],
-    '5,1': [{from:24,to:23},{from:23,to:18}],
-    '6,1': [{from:13,to:7},{from:8,to:7}],
-    '4,2': [{from:8,to:4},{from:6,to:4}],
-    '5,2': [{from:13,to:8},{from:24,to:22}],
-    '6,2': [{from:24,to:22},{from:24,to:18}],
-    '4,3': [{from:24,to:21},{from:24,to:20}],
-    '5,3': [{from:6,to:3},{from:8,to:3}],
-    '6,3': [{from:24,to:21},{from:24,to:18}],
-    '5,4': [{from:24,to:20},{from:13,to:9}],
-    '6,4': [{from:24,to:18},{from:24,to:20}],
-    '6,5': [{from:24,to:18},{from:18,to:13}],
   }
 };
 
@@ -3628,7 +3600,8 @@ function _getOpeningBookMoves() {
   const style = (_currentAIPlayer && _currentAIPlayer.style) || 'none';
   if (style !== 'aggressive' && style !== 'defensive') return null;
   const book = _OPENING_BOOK[style];
-  const key = movesLeft[0] + ',' + movesLeft[1]; // use dice as-rolled
+  const d = [...movesLeft].sort((a,b)=>a-b); // normalize: low,high
+  const key = d[0] + ',' + d[1];
   return book[key] || null;
 }
 
