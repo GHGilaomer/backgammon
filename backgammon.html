@@ -691,7 +691,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.35-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.36-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -1110,7 +1110,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.35-MP';
+const VERSION    = 'v8.36-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1804,7 +1804,7 @@ async function _findMatch(name, flag) {
     // Show the same accept prompt as human matches — AI accepts after 1-2s
     _showAcceptPrompt(opp.name, oppRating,
       () => { _startAIGame(opp.name, opp.flag, oppRating, 'medium', name, flag); },
-      () => { _showLobby(); }
+      () => { _cancelMatchSearch(); }
     );
     // Human must click ACCEPT — AI is always ready, no auto-click needed
   }, _searchDuration);
