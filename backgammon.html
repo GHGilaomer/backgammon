@@ -691,7 +691,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.31-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.32-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -1110,7 +1110,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.31-MP';
+const VERSION    = 'v8.32-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -3531,67 +3531,54 @@ function _waitForAnim() {
 let _aiFirstMovePlayed = false;
 let _currentAIPlayer = null; // set when AI game starts, holds roster entry
 
+// Opening book — all points in CODE coordinates (Black's own point N → code point 25-N)
+// Black moves from low code points → high code points (toward 24, bearing off at 25)
 const _OPENING_BOOK = {
   aggressive: {
-    '1,1': [{from:6,to:5},{from:6,to:5},{from:8,to:7},{from:8,to:7}],
-    '1,2': [{from:13,to:11},{from:11,to:10}],
-    '1,3': [{from:8,to:5},{from:6,to:5}],
-    '1,4': [{from:13,to:9},{from:9,to:8}],
-    '1,5': [{from:13,to:8},{from:24,to:23}],
-    '1,6': [{from:13,to:7},{from:8,to:7}],
-    '2,2': [{from:6,to:4},{from:6,to:4},{from:13,to:11},{from:13,to:11}],
-    '2,3': [{from:13,to:10},{from:10,to:8}],
-    '2,4': [{from:8,to:4},{from:6,to:4}],
-    '2,5': [{from:13,to:8},{from:13,to:11}],
-    '2,6': [{from:13,to:11},{from:24,to:18}],
-    '3,3': [{from:6,to:3},{from:6,to:3},{from:13,to:10},{from:13,to:10}],
-    '3,4': [{from:13,to:10},{from:24,to:20}],
-    '3,5': [{from:6,to:3},{from:8,to:3}],
-    '3,6': [{from:13,to:10},{from:24,to:18}],
-    '4,4': [{from:13,to:9},{from:13,to:9},{from:9,to:5},{from:9,to:5}],
-    '4,5': [{from:13,to:8},{from:13,to:9}],
-    '4,6': [{from:24,to:18},{from:13,to:9}],
-    '5,5': [{from:13,to:8},{from:13,to:8},{from:8,to:3},{from:8,to:3}],
-    '5,6': [{from:13,to:8},{from:24,to:18}],
-    '6,6': [{from:24,to:18},{from:24,to:18},{from:13,to:7},{from:13,to:7}],
+    '1,1': [{from:19,to:20},{from:19,to:20},{from:17,to:18},{from:17,to:18}],
+    '1,2': [{from:12,to:14},{from:14,to:15}],
+    '1,3': [{from:17,to:20},{from:19,to:20}],
+    '1,4': [{from:12,to:16},{from:16,to:17}],
+    '1,5': [{from:12,to:17},{from:1,to:2}],
+    '1,6': [{from:12,to:18},{from:17,to:18}],
+    '2,2': [{from:19,to:21},{from:19,to:21},{from:12,to:14},{from:12,to:14}],
+    '2,3': [{from:12,to:15},{from:15,to:17}],
+    '2,4': [{from:17,to:21},{from:19,to:21}],
+    '2,5': [{from:12,to:17},{from:12,to:14}],
+    '2,6': [{from:12,to:14},{from:1,to:7}],
+    '3,3': [{from:19,to:22},{from:19,to:22},{from:12,to:15},{from:12,to:15}],
+    '3,4': [{from:12,to:15},{from:1,to:5}],
+    '3,5': [{from:19,to:22},{from:17,to:22}],
+    '3,6': [{from:12,to:15},{from:1,to:7}],
+    '4,4': [{from:12,to:16},{from:12,to:16},{from:16,to:20},{from:16,to:20}],
+    '4,5': [{from:12,to:17},{from:12,to:16}],
+    '4,6': [{from:1,to:7},{from:12,to:16}],
+    '5,5': [{from:12,to:17},{from:12,to:17},{from:17,to:22},{from:17,to:22}],
+    '5,6': [{from:12,to:17},{from:1,to:7}],
+    '6,6': [{from:1,to:7},{from:1,to:7},{from:12,to:18},{from:12,to:18}],
   },
   defensive: {
-    '1,1': [{from:6,to:5},{from:6,to:5},{from:24,to:23},{from:23,to:21}],
-    '1,2': [{from:24,to:23},{from:23,to:21}],
-    '1,3': [{from:8,to:5},{from:6,to:5}],
-    '1,4': [{from:24,to:20},{from:24,to:23}],
-    '1,5': [{from:24,to:23},{from:23,to:18}],
-    '1,6': [{from:13,to:7},{from:8,to:7}],
-    '2,1': [{from:24,to:23},{from:23,to:21}],
-    '2,2': [{from:6,to:4},{from:6,to:4},{from:24,to:22},{from:24,to:22}],
-    '2,3': [{from:13,to:10},{from:10,to:8}],
-    '2,4': [{from:8,to:4},{from:6,to:4}],
-    '2,5': [{from:13,to:8},{from:24,to:22}],
-    '2,6': [{from:24,to:22},{from:24,to:18}],
-    '3,1': [{from:8,to:5},{from:6,to:5}],
-    '3,2': [{from:24,to:22},{from:24,to:21}],
-    '3,3': [{from:6,to:3},{from:6,to:3},{from:24,to:21},{from:24,to:21}],
-    '3,4': [{from:24,to:21},{from:24,to:20}],
-    '3,5': [{from:6,to:3},{from:8,to:3}],
-    '3,6': [{from:24,to:21},{from:24,to:18}],
-    '4,1': [{from:24,to:20},{from:24,to:23}],
-    '4,2': [{from:8,to:4},{from:6,to:4}],
-    '4,3': [{from:24,to:21},{from:24,to:20}],
-    '4,4': [{from:13,to:9},{from:13,to:9},{from:24,to:20},{from:24,to:20}],
-    '4,5': [{from:24,to:20},{from:13,to:9}],
-    '4,6': [{from:24,to:18},{from:24,to:20}],
-    '5,1': [{from:24,to:23},{from:23,to:18}],
-    '5,2': [{from:13,to:8},{from:24,to:22}],
-    '5,3': [{from:6,to:3},{from:8,to:3}],
-    '5,4': [{from:24,to:20},{from:13,to:9}],
-    '5,5': [{from:13,to:8},{from:13,to:8},{from:8,to:3},{from:8,to:3}],
-    '5,6': [{from:24,to:18},{from:18,to:13}],
-    '6,1': [{from:13,to:7},{from:8,to:7}],
-    '6,2': [{from:24,to:22},{from:24,to:18}],
-    '6,3': [{from:24,to:21},{from:24,to:18}],
-    '6,4': [{from:24,to:18},{from:24,to:20}],
-    '6,5': [{from:24,to:18},{from:18,to:13}],
-    '6,6': [{from:24,to:18},{from:24,to:18},{from:13,to:7},{from:13,to:7}],
+    '1,1': [{from:19,to:20},{from:19,to:20},{from:1,to:2},{from:2,to:3}],
+    '1,2': [{from:1,to:2},{from:2,to:4}],
+    '1,3': [{from:17,to:20},{from:19,to:20}],
+    '1,4': [{from:1,to:5},{from:1,to:2}],
+    '1,5': [{from:1,to:2},{from:2,to:7}],
+    '1,6': [{from:12,to:18},{from:17,to:18}],
+    '2,2': [{from:19,to:21},{from:19,to:21},{from:1,to:3},{from:1,to:3}],
+    '2,3': [{from:12,to:15},{from:15,to:17}],
+    '2,4': [{from:17,to:21},{from:19,to:21}],
+    '2,5': [{from:12,to:17},{from:1,to:3}],
+    '2,6': [{from:1,to:3},{from:1,to:7}],
+    '3,3': [{from:19,to:22},{from:19,to:22},{from:1,to:4},{from:1,to:4}],
+    '3,4': [{from:1,to:4},{from:1,to:5}],
+    '3,5': [{from:19,to:22},{from:17,to:22}],
+    '3,6': [{from:1,to:4},{from:1,to:7}],
+    '4,4': [{from:12,to:16},{from:12,to:16},{from:1,to:5},{from:1,to:5}],
+    '4,5': [{from:1,to:6},{from:12,to:16}],
+    '4,6': [{from:1,to:7},{from:1,to:5}],
+    '5,5': [{from:12,to:17},{from:12,to:17},{from:17,to:22},{from:17,to:22}],
+    '5,6': [{from:1,to:7},{from:7,to:12}],
+    '6,6': [{from:1,to:7},{from:1,to:7},{from:12,to:18},{from:12,to:18}],
   }
 };
 
@@ -3602,7 +3589,12 @@ function _getOpeningBookMoves() {
   const book = _OPENING_BOOK[style];
   const d = [...movesLeft].sort((a,b)=>a-b); // normalize: low,high
   const key = d[0] + ',' + d[1];
-  return book[key] || null;
+  const moves = book[key];
+  if (!moves) return null;
+  // Safety: verify first move's source point has a black checker
+  const firstFrom = moves[0].from;
+  if (!points[firstFrom] || points[firstFrom].color !== 'black') return null;
+  return moves;
 }
 
 // Execute AI turn: pick best moves, apply them with smooth animation + realistic delays
