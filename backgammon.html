@@ -271,6 +271,42 @@
       -webkit-tap-highlight-color: transparent;
     }
     #find-btn:hover { background: linear-gradient(135deg, #0e4a72, #2a8abe); }
+    #ai-searching-status { font-size: 12px; color: #9a80c0; letter-spacing: 1px; margin-top: 6px; min-height: 14px; }
+    #search-cylinder {
+      width: 36px; height: 110px;
+      margin: 12px auto 8px;
+      border: 2px solid #4a7aaa;
+      border-radius: 8px;
+      background: rgba(10,30,50,0.6);
+      position: relative;
+      overflow: hidden;
+    }
+    #search-cylinder-fill {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 0%;
+      background: linear-gradient(180deg, #60c0ff 0%, #1a6aaa 100%);
+      border-radius: 0 0 6px 6px;
+      transition: none;
+    }
+    #search-cylinder-fill.filling {
+      height: 100%;
+      transition: height var(--search-duration, 10s) linear;
+    }
+    #search-cylinder-label {
+      font-size: 10px; letter-spacing: 1px; color: #5a9aca;
+      margin-bottom: 10px;
+    }
+    #teach-btn {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      z-index: 300;
+      padding: 10px 22px;
+      background: linear-gradient(135deg, #3a1a6a, #7a2aaa);
+      border: 1px solid #c060ff; border-radius: 10px;
+      color: #f0d8ff; font-family: 'Courier New', monospace; font-size: 12px;
+      font-weight: bold; letter-spacing: 2px; cursor: pointer;
+      display: none;
+    }
+    #teach-btn:hover { background: linear-gradient(135deg, #4a2a7a, #8a3aba); }
     #searching-room { display: none; text-align: center; padding-top: 6px; }
     #searching-status { font-size: 13px; color: #a8d8f0; letter-spacing: 2px; margin-bottom: 12px; }
     #cancel-find-btn {
@@ -655,7 +691,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.2-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.28-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -668,7 +704,7 @@
         <label for="left-base" style="font-size:11px;letter-spacing:1px;color:#b070c0;cursor:pointer;user-select:none;line-height:1.5;">HOME BOARD ON LEFT SIDE <span style="color:#7a5a90;">(optional)</span></label>
       </div>
     </div>
-    <div id="rating-display" style="text-align:center; font-size:12px; letter-spacing:2px; color:#a8c878; margin-bottom:12px; min-height:16px;"></div>
+    <div id="rating-display" style="text-align:center; font-size:15px; letter-spacing:2px; color:#a8c878; margin-bottom:12px; min-height:20px;"></div>
     <div id="lobby-section">
       <button id="find-btn">🔍  FIND A MATCH  (auto-pair by rating)</button>
       <div id="lobby-sep">— or —</div>
@@ -684,6 +720,9 @@
     </div>
     <div id="searching-room">
       <div id="searching-status">🔍  Searching for opponent...</div>
+      <div id="search-cylinder"><div id="search-cylinder-fill"></div></div>
+      <div id="search-cylinder-label">FINDING MATCH</div>
+      <div id="ai-searching-status"></div>
       <button id="cancel-find-btn">CANCEL</button>
     </div>
     <div id="accept-room">
@@ -704,6 +743,7 @@
   </div>
 </div>
 <canvas id="c"></canvas>
+<button id="teach-btn">💡  BETTER MOVE?</button>
 <div id="rematch-overlay">
   <button id="rematch-btn">⚔  REMATCH</button><button id="lobby-btn">⌂  LOBBY</button>
 </div>
@@ -1061,6 +1101,7 @@ const FB_CONFIG = {
 };
 let _fbDb = null, _fbRoom = null;
 let myRole = null;   // 'white' | 'black' — null until game starts
+let _isAI = false, _aiRole = null, _aiDifficulty = 'medium', _aiThinking = false;
 let roomCode = null;
 let _myIp = '';
 let _myRating = 1500;
@@ -1069,7 +1110,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.2-MP';
+const VERSION    = 'v8.28-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1095,9 +1136,10 @@ function _mkNameKey(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'player';
 }
 
-function _updateRatingDisplay() {
+function _updateRatingDisplay(rating) {
+  const r = rating !== undefined ? rating : _myRating;
   const el = document.getElementById('rating-display');
-  if (el) el.textContent = _levelLabel(_myRating) + '  ·  ' + _myRating;
+  if (el) el.textContent = 'Your level:  ' + _levelLabel(r) + '  ·  ' + r;
 }
 
 // Show the declare-victory / wait-longer overlay for the IDLE player.
@@ -1127,7 +1169,9 @@ function _showTimeoutOverlay() {
 }
 
 function _showRematchBtn() {
-  if (!myRole) return; // singleplayer — no rematch btn
+  if (!myRole && !_isAI) return; // singleplayer — no rematch btn
+  const humanColor = _aiRole === 'black' ? 'white' : 'black';
+  _aiLearnGameEnd(_gameWinner === humanColor);
   setTimeout(() => { document.getElementById('rematch-overlay').style.display = 'block'; }, 2000);
 }
 
@@ -1194,20 +1238,28 @@ function _refreshEarlyWinOverlay() {
       ov.style.display = 'none';
       _ewMyAgreed = false; _ewPA = null;
     }
+    _ewStableFrames = 0;
     return;
   }
-  // Both players must have all remaining men in home board AND each must have borne off at least 1
-  // (prevents early-win appearing before doubles are possible — e.g. opponent could roll doubles)
-  if (!_allMenHome('white') || !_allMenHome('black')) { ov.style.display = 'none'; return; }
-  if (off.white < 1 || off.black < 1) { ov.style.display = 'none'; return; }
-  if (off.white >= 15 || off.black >= 15) { ov.style.display = 'none'; return; }
+  // Both players must have all remaining men in home board
+  if (!_allMenHome('white') || !_allMenHome('black')) { ov.style.display = 'none'; _ewStableFrames=0; return; }
+  if (off.white >= 15 || off.black >= 15) { ov.style.display = 'none'; _ewStableFrames=0; return; }
   const simWinner = _getCertainWinner();
-  if (!simWinner) { ov.style.display = 'none'; _ewPA = null; _ewMyAgreed = false; return; }
+  if (!simWinner) { ov.style.display = 'none'; _ewPA = null; _ewMyAgreed = false; _ewStableFrames=0; return; }
+  // Don't offer early win if winner has ≤4 men left — they'll finish in 1-2 turns anyway
+  if ((15 - off[simWinner]) <= 4) { ov.style.display = 'none'; _ewStableFrames=0; return; }
+  // Debounce: require condition to hold for 12 frames (~0.2s) before showing overlay
+  _ewStableFrames++;
+  if (_ewStableFrames < 12) return;
   // New certain winner (turn changed): reset agree state
   if (_ewPA !== simWinner) {
     _ewPA = simWinner;
     _ewMyAgreed = false;
     if (_fbRoom) _fbRoom.child('earlyWin').remove();
+    // In AI games: auto-resolve after 8s if player hasn't clicked
+    if (_isAI && !_ewCompleted) {
+      setTimeout(() => { if (!_ewCompleted && _ewPA === simWinner) _triggerEarlyWin(); }, 8000);
+    }
   }
   const iAmWinner = myRole === _ewPA;
   const winName = _ewPA === 'white' ? players.white.name : players.black.name;
@@ -1223,9 +1275,13 @@ function _refreshEarlyWinOverlay() {
   btn.disabled = _ewMyAgreed;
   document.getElementById('early-win-status').textContent = _ewMyAgreed ? 'Waiting for opponent...' : '';
 }
+let _ewStableFrames = 0; // debounce: frames the early-win condition has been continuously true
 let _ewListener = null; // holds the Firebase listener so we can detach on play-on
 function _onEarlyWinAgree() {
-  if (!myRole || !_fbRoom || _ewMyAgreed || _ewCompleted || !_ewPA) return;
+  if (!myRole || _ewMyAgreed || _ewCompleted || !_ewPA) return;
+  // AI game — no Firebase needed, trigger win immediately
+  if (_isAI) { _triggerEarlyWin(); return; }
+  if (!_fbRoom) return;
   _ewMyAgreed = true;
   document.getElementById('early-win-overlay').style.display = 'none';
   _fbRoom.child('earlyWin/' + myRole).set(true);
@@ -1262,6 +1318,26 @@ function _hideRematchBtn() {
 }
 
 function _doRematch() {
+  if (_isAI) {
+    _hideRematchBtn();
+    const btn = document.getElementById('rematch-btn');
+    if (btn) { btn.textContent = '⏳  WAITING FOR OPPONENT...'; btn.disabled = true; }
+    document.getElementById('rematch-overlay').style.display = 'block';
+    const aiName = players[_aiRole].name;
+    setTimeout(() => {
+      const accepts = Math.random() < 0.5;
+      if (accepts) {
+        if (btn) { btn.textContent = '⚔  REMATCH'; btn.disabled = false; }
+        _hideRematchBtn(); _aiThinking = false;
+        _loopStarted = false; _launchGame();
+      } else {
+        if (btn) { btn.textContent = '⚔  REMATCH'; btn.disabled = false; }
+        document.getElementById('rematch-overlay').style.display = 'none';
+        statusMsg = aiName + ' declined the rematch.'; statusTimer = 200;
+      }
+    }, 1500 + Math.random() * 2000);
+    return;
+  }
   _hideRematchBtn();
   // Show waiting state on the button
   const btn = document.getElementById('rematch-btn');
@@ -1320,7 +1396,8 @@ function _saveMatchHistory(winnerColor, pts) {
 }
 
 function _updateElo(winnerColor, pts) {
-  if (!myRole || !_myPlayerKey || !_isRankedGame) return; // singleplayer, unregistered, or invite game
+  if (!myRole || !_isRankedGame) return;
+  if (_aiGameAborted) return;
   const wRating = (players.white.rating || 1500);
   const bRating = (players.black.rating || 1500);
   const winnerRating = winnerColor === 'white' ? wRating : bRating;
@@ -1332,9 +1409,24 @@ function _updateElo(winnerColor, pts) {
   const change = iAmWinner ? myK * delta : -(myK * delta);
   _myRating = Math.max(100, Math.round(_myRating + change));
   _myGamesPlayed++;
-  try {
-    _fbDb.ref('players/' + _myPlayerKey).update({ rating: _myRating, gamesPlayed: _myGamesPlayed, lastSeen: Date.now() });
-  } catch(e) {}
+  if (_myPlayerKey) {
+    try {
+      _fbDb.ref('players/' + _myPlayerKey).update({ rating: _myRating, gamesPlayed: _myGamesPlayed, lastSeen: Date.now() });
+    } catch(e) {}
+  }
+  // Update AI opponent's rating in localStorage
+  if (_isAI && _aiRole) {
+    const aiColor = _aiRole;
+    const aiRatingCur = players[aiColor].rating || 1500;
+    const aiWon = winnerColor === aiColor;
+    const aiExpected = 1 - expected; // mirror of player's expected
+    const aiK = (_loadAIRating(players[aiColor].name) < 1400 || _learnW.games < 10) ? 16 : 10;
+    const aiChange = aiWon ? aiK * aiExpected * pts : -(aiK * (1 - aiExpected) * pts);
+    const newAiRating = Math.max(100, Math.round(aiRatingCur + aiChange));
+    players[aiColor].rating = newAiRating;
+    players[aiColor].level = _levelLabel(newAiRating);
+    _saveAIRating(players[aiColor].name, newAiRating);
+  }
 }
 
 let _isRankedGame = false;   // true only for Find a Match games
@@ -1342,12 +1434,78 @@ let _timeoutPending = false; // true when clock expired and waiting for declare/
 let _rematchPending = false; // true on Black's side while waiting for White to push new game
 let _matchQueueRef = null; // my own queue entry ref
 let _matchPollInterval = null;
+let _aiSearchTimer = null; // fires after 10s of searching, falls back to AI opponent
+
+// ── AI Roster (31 players, all share Albert's learned weights) ────────────────
+// windows: [[startHour, endHour], ...] in 24h. null = available all day.
+const _AI_ROSTER = [
+  { name: 'ShadowDrift',  flag: 'US', windows: [[0,3],[12,16]] },
+  { name: 'IronVex',      flag: 'US', windows: [[3,7],[16,20]] },
+  { name: 'NovaStrike',   flag: 'US', windows: [[7,12],[17,23]] },
+  { name: 'RiftHunter',   flag: 'US', windows: [[8,11],[20,24]] },
+  { name: 'BlazeVector',  flag: 'US', windows: [[2,4],[18,24]] },
+  { name: 'NightRook',    flag: 'US', windows: [[21,24],[0,3]] },
+  { name: 'TitanPulse',   flag: 'US', windows: [[10,16],[18,23.83]] },
+  { name: 'GhostArc',     flag: 'US', windows: [[0,2],[16,20]] },
+  { name: 'VortexKnight', flag: 'US', windows: [[0,3],[20,23.98]] },
+  { name: 'EmberWolf',    flag: 'US', windows: [[8,12],[18,22]] },
+  { name: 'LunaVibe',     flag: 'US', windows: [[7,11],[21,23.67]] },
+  { name: 'NovaBloom',    flag: 'US', windows: [[1,4],[17,24]] },
+  { name: 'ShadowLily',   flag: 'US', windows: [[19,24],[0,3]] },
+  { name: 'VelvetHex',    flag: 'US', windows: [[11,16],[18,23.83]] },
+  { name: 'EmberFaye',    flag: 'US', windows: [[0,2],[16,20]] },
+  { name: 'CrystalVox',  flag: 'US', windows: [[0,3],[20,23.98]] },
+  { name: 'AstraNyx',     flag: 'US', windows: [[8,12],[18,22]] },
+  { name: 'MysticRaven',  flag: 'US', windows: [[7,11],[21,23.67]] },
+  { name: 'EchoSiren',    flag: 'US', windows: [[1,4],[17,24]] },
+  { name: 'FrostPetal',   flag: 'US', windows: [[19,24],[0,3]] },
+  { name: 'Liam',         flag: 'US', windows: [[0,3],[12,16]] },
+  { name: 'Noah',         flag: 'US', windows: [[3,7],[16,20]] },
+  { name: 'Oliver',       flag: 'US', windows: [[7,12],[17,23]] },
+  { name: 'James',        flag: 'US', windows: [[8,11],[20,24]] },
+  { name: 'Elijah',       flag: 'US', windows: [[2,4],[18,24]] },
+  { name: 'Olivia',       flag: 'US', windows: [[21,24],[0,3]] },
+  { name: 'Emma',         flag: 'US', windows: [[10,16],[18,23.83]] },
+  { name: 'Charlotte',    flag: 'US', windows: [[0,2],[16,20]] },
+  { name: 'Amelia',       flag: 'US', windows: [[0,3],[20,23.98]] },
+  { name: 'Sophia',       flag: 'US', windows: [[8,12],[18,22]] },
+  { name: 'Albert',       flag: 'US', windows: null }, // available all day
+];
+
+function _aiIsActive(player) {
+  if (!player.windows) return true;
+  const now = new Date();
+  const h = now.getHours() + now.getMinutes() / 60;
+  return player.windows.some(([s, e]) => h >= s && h < e);
+}
+
+function _pickAIOpponent() {
+  const active = _AI_ROSTER.filter(_aiIsActive);
+  // Fallback: Albert is always available so active is never empty
+  let bestDiff = Infinity, candidates = [];
+  for (const p of active) {
+    const d = Math.abs(_loadAIRating(p.name) - _myRating);
+    if (d < bestDiff) { bestDiff = d; candidates = [p]; }
+    else if (d === bestDiff) candidates.push(p);
+  }
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function _loadAIRating(aiName) {
+  const s = localStorage.getItem('bgca_ai_' + aiName.toLowerCase().replace(/\s/g,''));
+  return s ? parseInt(s) : 1650; // all AI players start at 1650
+}
+function _saveAIRating(aiName, rating) {
+  localStorage.setItem('bgca_ai_' + aiName.toLowerCase().replace(/\s/g,''), rating);
+}
 let _acceptCountdownInterval = null;
 let _pendingMatchInfo = null; // {theirKey, them, name, flag} — held during accept/decline
 
 // ── Stale queue cleanup ───────────────────────────────────────
+let _aiGameAborted = false;
 window.addEventListener('beforeunload', () => {
   if (_matchQueueRef) _matchQueueRef.remove();
+  if (_isAI && _isOwner() && phase !== 'gameover') _aiGameAborted = true;
 });
 
 function _cleanupStaleQueue() {
@@ -1413,15 +1571,46 @@ function _showAcceptPrompt(opponentName, opponentRating, onAccept, onDecline) {
   document.getElementById('decline-btn').onclick = () => { clearInterval(_acceptCountdownInterval); document.getElementById('accept-room').style.display = 'none'; onDecline(); };
 }
 
+// ── Lobby ambient audio ───────────────────────────────────────────────────────
+const _lobbyAudioSrc = Math.random() < 0.5 ? './lobby-ambient-1.mp3' : './lobby-ambient-4.mp3';
+const _lobbyAudio = new Audio(_lobbyAudioSrc);
+_lobbyAudio.loop = true;
+_lobbyAudio.volume = 0;
+let _lobbyAudioStarted = false;
+function _lobbyAudioFadeIn() {
+  if (_lobbyAudioStarted) return;
+  _lobbyAudio.play().then(() => {
+    _lobbyAudioStarted = true;
+    document.removeEventListener('click', _lobbyClickHandler); // detach — no more retries
+    let v = 0;
+    const iv = setInterval(() => {
+      v = Math.min(0.4, v + 0.02);
+      _lobbyAudio.volume = v;
+      if (v >= 0.4) clearInterval(iv);
+    }, 80);
+  }).catch(() => {}); // blocked by autoplay policy — will retry on next click
+}
+function _lobbyAudioFadeOut() {
+  _lobbyAudio.pause();
+  _lobbyAudio.currentTime = 0;
+  _lobbyAudio.volume = 0;
+  _lobbyAudioStarted = false;
+}
+
 function _showLobby() {
   document.getElementById('lobby-section').style.display = '';
   document.getElementById('waiting-room').style.display = 'none';
   document.getElementById('searching-room').style.display = 'none';
+  _lobbyAudioFadeIn();
 }
 
 function _cancelMatchSearch() {
+  if (_aiSearchTimer) { clearTimeout(_aiSearchTimer); _aiSearchTimer = null; }
   if (_matchPollInterval) { clearInterval(_matchPollInterval); _matchPollInterval = null; }
   if (_matchQueueRef) { _matchQueueRef.off('value'); _matchQueueRef.remove(); _matchQueueRef = null; }
+  document.getElementById('ai-searching-status').textContent = '';
+  const _fill = document.getElementById('search-cylinder-fill');
+  _fill.classList.remove('filling'); _fill.style.transition='none'; _fill.style.height='0%';
   _showLobby();
 }
 
@@ -1480,6 +1669,7 @@ function _startMatchListeners(name, flag, myKey) {
     if (d.roomCode) {
       // Both accepted — join as Black
       _matchQueueRef.off('value');
+      if (_aiSearchTimer) { clearTimeout(_aiSearchTimer); _aiSearchTimer = null; }
       if (_acceptCountdownInterval) { clearInterval(_acceptCountdownInterval); _acceptCountdownInterval = null; }
       document.getElementById('accept-room').style.display = 'none';
       roomCode = d.roomCode; myRole = 'black'; _isRankedGame = true;
@@ -1549,6 +1739,7 @@ function _startMatchListeners(name, flag, myKey) {
           if (bd.blackAccepted === true && !bd.roomCode) {
             // Both accepted — create room and write roomCode to Black's entry
             _fbDb.ref('matchQueue/' + bestKey).off('value');
+            if (_aiSearchTimer) { clearTimeout(_aiSearchTimer); _aiSearchTimer = null; }
             document.getElementById('accept-room').style.display = 'none';
             roomCode = _genCode(); _sessionId = Math.random().toString(36).slice(2, 10);
             _fbRoom = _fbDb.ref('rooms/' + roomCode); myRole = 'white';
@@ -1593,6 +1784,27 @@ async function _findMatch(name, flag) {
   await _matchQueueRef.set({ name, flag, rating: _myRating, ts: Date.now(), roomCode: null });
   const myKey = _matchQueueRef.key;
   document.getElementById('searching-status').textContent = '🔍  Searching for opponent...';
+  document.getElementById('ai-searching-status').textContent = '';
+  // Cylinder fills slowly over 60s — match fires at 15–25s so it's only partially full
+  const _searchDuration = 7000 + Math.random() * 6000;
+  const _fill = document.getElementById('search-cylinder-fill');
+  _fill.style.setProperty('--search-duration', '60s');
+  _fill.classList.remove('filling'); void _fill.offsetWidth; _fill.classList.add('filling');
+  // After random wait without finding a human, silently match with AI
+  _aiSearchTimer = setTimeout(() => {
+    _aiSearchTimer = null;
+    if (!_matchQueueRef) return; // already matched with a human
+    // Freeze cylinder at current fill level, flash found message
+    const _f = document.getElementById('search-cylinder-fill');
+    const _filled = _f.getBoundingClientRect().height / _f.parentElement.getBoundingClientRect().height * 100;
+    _f.classList.remove('filling'); _f.style.transition='none'; _f.style.height=_filled.toFixed(1)+'%';
+    document.getElementById('searching-status').textContent = '✓  Opponent found!';
+    setTimeout(() => {
+      if (_matchQueueRef) _cancelMatchSearch(); // safety check
+      const opp = _pickAIOpponent();
+      _startAIGame(opp.name, opp.flag, _loadAIRating(opp.name), 'medium', name, flag);
+    }, 800);
+  }, _searchDuration);
   _startMatchListeners(name, flag, myKey);
 }
 
@@ -1627,6 +1839,7 @@ async function _registerPlayer(name) {
 
 let _loopStarted = false;
 function _launchGame() {
+  _lobbyAudioFadeOut();
   // On mobile portrait: show rotate overlay over the game until device is rotated
   if (window.innerWidth <= 768 && window.innerHeight > window.innerWidth) {
     const _rm = document.getElementById('rotate-msg');
@@ -1970,11 +2183,16 @@ function pushState(soundEvent = null) {
 }
 
 function isMyTurn() {
+  if (_teachActive) return true; // teach mode: player controls AI's pieces, board stays same orientation
   if (!myRole) return true; // singleplayer — always allowed
   if (phase==='opening')   return myRole==='white';
   if (phase==='opening_b') return myRole==='black';
   return myRole === currentPlayer;
 }
+
+// Start lobby audio on first successful user interaction (retry until it works, then detach)
+function _lobbyClickHandler() { _lobbyAudioFadeIn(); }
+document.addEventListener('click', _lobbyClickHandler);
 
 document.addEventListener('DOMContentLoaded', () => {
   const usa = COUNTRY_LIST.find(c => c.c === 'US');
@@ -2005,18 +2223,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('my-name').addEventListener('input', () => {
     clearTimeout(_cLookupTimer);
     const name = document.getElementById('my-name').value.trim();
-    if (!name) return;
+    if (!name) { document.getElementById('rating-display').textContent = ''; return; }
     _cLookupTimer = setTimeout(async () => {
       try {
         if (!_myIp) return; // IP not ready yet — skip
         const key = _mkPlayerKey(name, _myIp);
-        const snap = await _fbDb.ref('players/' + key + '/country').once('value');
-        const saved = snap.val();
+        const snap = await _fbDb.ref('players/' + key).once('value');
+        const rec = snap.val();
         // Only apply if the name field still matches what we searched (user may have kept typing)
         const current = document.getElementById('my-name').value.trim();
-        if (saved && _mkPlayerKey(current, _myIp) === key) {
-          const sel = document.getElementById('my-country');
-          if (!sel.value) sel.value = saved;
+        if (_mkPlayerKey(current, _myIp) === key) {
+          if (rec && rec.country) {
+            const sel = document.getElementById('my-country');
+            if (!sel.value) sel.value = rec.country;
+          }
+          const knownRating = (rec && rec.rating) ? rec.rating : 1500;
+          _updateRatingDisplay(knownRating);
         }
       } catch(e) {}
     }, 250);
@@ -2125,6 +2347,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showErr('');
   });
 
+  document.getElementById('teach-btn').addEventListener('click', () => { _teachPlayMoves=[]; _teachStart(); });
   document.getElementById('rematch-btn').addEventListener('click', () => { _doRematch(); });
   document.getElementById('lobby-btn').addEventListener('click', () => { location.reload(); });
   document.getElementById('early-win-btn').addEventListener('click', () => { _onEarlyWinAgree(); });
@@ -2793,6 +3016,8 @@ function initBoard() {
   currentPlayer='white'; dice=[]; movesLeft=[];
   selectedPoint=null; highlights=[]; combinedHighlights=[]; statusMsg=''; statusTimer=0; skipTimer=0;
   dicePhysics=[]; checkerAnim=null; blotAnim=null; openingDice=[]; _tieHandled=false;
+  _teachSnapshot=null; _teachMoves=null; _teachActive=false; _teachPlayMoves=[];
+  document.getElementById('teach-btn').style.display='none';
   turnTimer=-1; _clockDeadlineMs=-1; fireworks=[]; fireworkBurstQueue=[]; billSafeAnim=null;
 }
 
@@ -2954,6 +3179,11 @@ function allBarEntriesBlocked() {
 }
 
 function endTurn() {
+  if (_teachActive && window._teachEndTurnHook) {
+    window._teachEndTurnHook(_teachPlayMoves); _teachPlayMoves = [];
+    return;
+  }
+  _aiLearnTurnEnd();
   currentPlayer = currentPlayer === 'white' ? 'black' : 'white';
   dice = []; movesLeft = []; phase = 'idle';
   selectedPoint = null; highlights = []; combinedHighlights = []; skipTimer = 0;
@@ -2961,6 +3191,466 @@ function endTurn() {
   _setTurnTimer(TURN_FRAMES);
   pushState(); // tell opponent: your turn now
 }
+
+// ── AI engine ─────────────────────────────────────────────────────────────────
+
+async function _startAIGame(aiName, aiFlag, aiRating, difficulty, preName = null, preFlag = null) {
+  let name, flag;
+  if (preName) {
+    // Called from 10s AI fallback — already registered + disclaimer shown
+    name = preName; flag = preFlag || '';
+    document.getElementById('searching-room').style.display = 'none';
+  } else {
+    name = document.getElementById('my-name').value.trim();
+    if (!name) { document.getElementById('mp-error').textContent = 'Please fill in your name or nickname.'; return; }
+    flag = document.getElementById('my-country').value || '';
+    await _registerPlayer(name);
+    await _checkAndShowDisclaimer();
+    document.getElementById('lobby-section').style.display = 'none';
+  }
+  _isAI = true; _aiRole = 'black'; _aiDifficulty = difficulty;
+  myRole = 'white'; _fbRoom = null; _isRankedGame = true;
+  const storedAiRating = _loadAIRating(aiName);
+  players.white = { name, flag, rating: _myRating, level: _levelLabel(_myRating) };
+  players.black = { name: aiName, flag: aiFlag, rating: storedAiRating, level: _levelLabel(storedAiRating) };
+  _loopStarted = false; _launchGame();
+}
+
+// Pure function: get legal destinations for one die from a given point on a hypothetical board
+function _aiGetDests(color, pts, barState, offState, from, die) {
+  const opp = color === 'white' ? 'black' : 'white';
+  const dir = color === 'white' ? -1 : 1;
+  const dests = [];
+  // Can bearer off?
+  const canBO = (() => {
+    if (barState[color] > 0) return false;
+    for (let n = 1; n <= 24; n++) {
+      const p = pts[n]; if (!p || p.color !== color || p.count === 0) continue;
+      const inHome = color === 'white' ? n <= 6 : n >= 19;
+      if (!inHome) return false;
+    }
+    return true;
+  })();
+  const to = from === 0 ? (color === 'white' ? 25 - die : die) : from + dir * die;
+  if (to >= 1 && to <= 24) {
+    const p = pts[to];
+    if (!p || !p.color || p.color === color || p.count === 1) dests.push(to);
+  }
+  if (from !== 0 && canBO) {
+    const dist = color === 'white' ? from : 25 - from;
+    if (die === dist) { dests.push(25); }
+    else if (die > dist) {
+      let higher = false;
+      if (color === 'white') { for (let p = from+1; p<=6; p++) if (pts[p]&&pts[p].color==='white'&&pts[p].count>0){higher=true;break;} }
+      else                   { for (let p = from-1; p>=19; p--) if (pts[p]&&pts[p].color==='black'&&pts[p].count>0){higher=true;break;} }
+      if (!higher) dests.push(25);
+    }
+  }
+  return dests;
+}
+
+// Pure function: apply one move and return new [pts, bar, off]
+function _aiApplyMove(color, pts, barState, offState, from, to, die) {
+  const opp = color === 'white' ? 'black' : 'white';
+  const np = pts.map(p => p ? {...p} : null);
+  const nb = {...barState}, no = {...offState};
+  if (from === 0) { nb[color]--; }
+  else { np[from] = {...np[from], count: np[from].count - 1}; if (np[from].count === 0) np[from] = {...np[from], color: null}; }
+  if (to === 25) { no[color]++; }
+  else {
+    if (np[to] && np[to].color === opp && np[to].count === 1) { np[to] = {color:null,count:0}; nb[opp]++; }
+    if (!np[to] || np[to].count === 0) np[to] = {color,count:1};
+    else np[to] = {color, count: np[to].count + 1};
+  }
+  return [np, nb, no];
+}
+
+// Enumerate all possible move sequences; returns array of {moves, pts, bar, off}
+function _aiEnumerateSeqs(color, pts, barState, offState, diceLeft) {
+  if (diceLeft.length === 0) return [{moves:[], pts, bar:barState, off:offState}];
+  const results = [], triedDie = new Set();
+  let foundAny = false;
+  for (let di = 0; di < diceLeft.length; di++) {
+    const die = diceLeft[di];
+    if (triedDie.has(die)) continue; triedDie.add(die);
+    const sources = [];
+    if (barState[color] > 0) { sources.push(0); }
+    else { for (let n=1;n<=24;n++) { if (pts[n]&&pts[n].color===color&&pts[n].count>0) sources.push(n); } }
+    for (const from of sources) {
+      const dests = _aiGetDests(color, pts, barState, offState, from, die);
+      for (const to of dests) {
+        foundAny = true;
+        const [np,nb,no] = _aiApplyMove(color, pts, barState, offState, from, to, die);
+        const rem = [...diceLeft]; rem.splice(di,1);
+        const subs = _aiEnumerateSeqs(color, np, nb, no, rem);
+        for (const s of subs) results.push({moves:[{from,to},...s.moves], pts:s.pts, bar:s.bar, off:s.off});
+      }
+      if (barState[color] > 0) break; // bar must be played first
+    }
+  }
+  if (!foundAny) results.push({moves:[], pts, bar:barState, off:offState});
+  return results;
+}
+
+// ── Imitation learning weights (stored in localStorage) ───────────────────────
+const _learnW = (() => {
+  try { return JSON.parse(localStorage.getItem('bgca_albert_learn') || 'null') || {pip:0,blotHome:0,blotThreat:0,prime:0,bar:0,bearoff:0,anchor:0,hit:0,games:0}; }
+  catch(e) { return {pip:0,blotHome:0,blotThreat:0,prime:0,bar:0,bearoff:0,anchor:0,hit:0,games:0}; }
+})();
+function _saveLearnW() { try { localStorage.setItem('bgca_albert_learn', JSON.stringify(_learnW)); } catch(e){} }
+let _humanTurnStart = null; // {pts, bar, off, dice} captured when human's turn begins
+let _humanMoves = [];       // moves human made this turn
+let _gameLearning = [];     // [{humanScore, aiScore, featureDiff}] per disagreement this game
+
+// Feature vector for a board position (from color's perspective)
+function _aiFeatures(color, pts, bar, off) {
+  const opp = color === 'white' ? 'black' : 'white';
+  let myPip=0, opPip=0;
+  for (let n=1;n<=24;n++) {
+    const p=pts[n]; if(!p||p.count===0) continue;
+    if(p.color===color) myPip+=(color==='white'?n:25-n)*p.count;
+    else if(p.color===opp) opPip+=(opp==='white'?n:25-n)*p.count;
+  }
+  myPip+=bar[color]*25; opPip+=bar[opp]*25;
+  const oppDir=opp==='white'?-1:1, h1=color==='white'?1:19, h6=color==='white'?6:24;
+  let blotHome=0, blotThreat=0, hit=0;
+  for (let n=1;n<=24;n++) {
+    const p=pts[n]; if(!p||p.color!==color||p.count!==1) continue;
+    let thr=false; for(let d=1;d<=6;d++){const s=n-oppDir*d;if(s>=1&&s<=24&&pts[s]&&pts[s].color===opp&&pts[s].count>0){thr=true;break;}}
+    if(n>=h1&&n<=h6) blotHome++; else if(thr) blotThreat++;
+  }
+  for(let n=1;n<=24;n++){const p=pts[n];if(p&&p.color===opp&&p.count===1) hit++;}
+  let run=0,prime=0; for(let n=1;n<=24;n++){const p=pts[n];if(p&&p.color===color&&p.count>=2){run++;prime=Math.max(prime,run);}else run=0;}
+  const oppHome=opp==='white'?[1,2,3,4,5,6]:[19,20,21,22,23,24];
+  let anchor=0; for(const n of oppHome){if(pts[n]&&pts[n].color===color&&pts[n].count>=2) anchor++;}
+  return {pip:opPip-myPip, blotHome:-blotHome, blotThreat:-blotThreat, prime, bar:-bar[color]+bar[opp], bearoff:off[color]-off[opp], anchor, hit};
+}
+
+// Score a board position from color's perspective (heuristic + learned adjustments)
+function _aiEvalBoard(color, pts, barState, offState) {
+  const f = _aiFeatures(color, pts, barState, offState);
+  // Base weights
+  let score = f.pip*1.1 + f.blotHome*22 + f.blotThreat*10 + f.prime*f.prime*1.8
+            + f.bar*6 + f.bearoff*10 + f.anchor*12 + f.hit*2;
+  // Add learned adjustments (capped to prevent runaway)
+  score += f.pip       * Math.max(-0.5, Math.min(0.5, _learnW.pip))
+         + f.blotHome  * Math.max(-8,   Math.min(8,   _learnW.blotHome))
+         + f.blotThreat* Math.max(-6,   Math.min(6,   _learnW.blotThreat))
+         + f.prime      * Math.max(-4,   Math.min(4,   _learnW.prime))
+         + f.bar        * Math.max(-4,   Math.min(4,   _learnW.bar))
+         + f.bearoff    * Math.max(-4,   Math.min(4,   _learnW.bearoff))
+         + f.anchor     * Math.max(-6,   Math.min(6,   _learnW.anchor))
+         + f.hit        * Math.max(-3,   Math.min(3,   _learnW.hit));
+  return score;
+}
+
+// ── Rollout evaluation ─────────────────────────────────────────────────────────
+
+// Play one random turn in-place, return new [pts, bar, off]
+function _aiRandomPlay(color, pts, bar, off) {
+  const d1=1+(Math.random()*6|0), d2=1+(Math.random()*6|0);
+  let dice = d1===d2?[d1,d1,d1,d1]:[d1,d2];
+  let p=pts, b=bar, o=off;
+  for (let guard=8; dice.length>0&&guard-->0;) {
+    const tried=new Set(), moves=[];
+    for (let i=0;i<dice.length;i++) {
+      const die=dice[i]; if(tried.has(die)) continue; tried.add(die);
+      const srcs=[]; if(b[color]>0){srcs.push(0);}else{for(let n=1;n<=24;n++) if(p[n]&&p[n].color===color&&p[n].count>0) srcs.push(n);}
+      for(const from of srcs){for(const to of _aiGetDests(color,p,b,o,from,die)) moves.push({from,to,die,i}); if(b[color]>0) break;}
+    }
+    if(!moves.length) break;
+    const mv=moves[Math.random()*moves.length|0];
+    [p,b,o]=_aiApplyMove(color,p,b,o,mv.from,mv.to,mv.die);
+    const nd=[...dice]; nd.splice(mv.i,1); dice=nd;
+  }
+  return [p,b,o];
+}
+
+// Greedy single-turn play: for each die pick the move that maximizes heuristic eval
+function _aiGreedyPlay(color, pts, bar, off) {
+  const d1=1+(Math.random()*6|0), d2=1+(Math.random()*6|0);
+  let dice = d1===d2?[d1,d1,d1,d1]:[d1,d2];
+  let p=pts, b=bar, o=off;
+  for (let guard=8; dice.length>0&&guard-->0;) {
+    const tried=new Set(), moves=[];
+    for (let i=0;i<dice.length;i++) {
+      const die=dice[i]; if(tried.has(die)) continue; tried.add(die);
+      const srcs=[]; if(b[color]>0){srcs.push(0);}else{for(let n=1;n<=24;n++) if(p[n]&&p[n].color===color&&p[n].count>0) srcs.push(n);}
+      for(const from of srcs){for(const to of _aiGetDests(color,p,b,o,from,die)) moves.push({from,to,die,i}); if(b[color]>0) break;}
+    }
+    if(!moves.length) break;
+    // Pick the move with best heuristic score instead of random
+    let bestMv=moves[0], bestSc=-Infinity;
+    for(const mv of moves) {
+      const [np,nb,no]=_aiApplyMove(color,p,b,o,mv.from,mv.to,mv.die);
+      const sc=_aiEvalBoard(color,np,nb,no);
+      if(sc>bestSc){bestSc=sc;bestMv=mv;}
+    }
+    [p,b,o]=_aiApplyMove(color,p,b,o,bestMv.from,bestMv.to,bestMv.die);
+    const nd=[...dice]; nd.splice(bestMv.i,1); dice=nd;
+  }
+  return [p,b,o];
+}
+
+// Run N greedy rollouts from a position; return estimated win rate [0..1] for color
+function _rolloutEval(color, pts, bar, off, N=25, depth=10) {
+  let wins=0;
+  for (let r=0;r<N;r++) {
+    let p=pts.map(q=>q?{color:q.color,count:q.count}:null);
+    let b={white:bar.white,black:bar.black}, o={white:off.white,black:off.black};
+    let cur=color==='white'?'black':'white'; // opponent responds first
+    for(let ply=0;ply<depth;ply++) {
+      if(o.white>=15||o.black>=15) break;
+      [p,b,o]=_aiGreedyPlay(cur,p,b,o);
+      cur=cur==='white'?'black':'white';
+    }
+    if(o[color]>=15) wins+=1;
+    else if(o[color==='white'?'black':'white']>=15) wins+=0;
+    else { const sc=_aiEvalBoard(color,p,b,o); wins+=0.5+Math.min(0.45,Math.max(-0.45,sc/100)); }
+  }
+  return wins/N;
+}
+
+// Pick best move sequence; returns {moves, thinkMs, seq}
+function _aiPickBestMoves() {
+  const color = _aiRole;
+  const pts = points.map(p=>p?{...p}:null);
+  const barState = {...bar}, offState = {...off};
+  const seqs = _aiEnumerateSeqs(color, pts, barState, offState, [...movesLeft]);
+  if (!seqs.length) return {moves:[], thinkMs:800, seq:null};
+  const maxLen = Math.max(...seqs.map(s=>s.moves.length));
+  let best = seqs.filter(s=>s.moves.length===maxLen);
+  // For rollout: if many candidates, pre-filter to top 25 by heuristic
+  if (_aiDifficulty==='medium' && best.length > 25) {
+    best = best.map(s=>({s,h:_aiEvalBoard(color,s.pts,s.bar,s.off)})).sort((a,b)=>b.h-a.h).slice(0,25).map(x=>x.s);
+  }
+  let topScore=-Infinity, secondScore=-Infinity, topSeq=null;
+  for (const s of best) {
+    let sc;
+    if (_aiDifficulty==='easy') {
+      sc = _aiEvalBoard(color, s.pts, s.bar, s.off) + (Math.random()-0.5)*50;
+    } else {
+      sc = _rolloutEval(color, s.pts, s.bar, s.off, 50, 10); // 50 rollouts, 10 ply
+    }
+    if (sc > topScore) { secondScore=topScore; topScore=sc; topSeq=s; }
+    else if (sc > secondScore) secondScore=sc;
+  }
+  // Think time based on rollout gap (scores now in [0,1] range for medium)
+  const gap = topScore - (secondScore === -Infinity ? topScore : secondScore);
+  let thinkMs;
+  if (_aiDifficulty==='easy') {
+    thinkMs = 1500 + Math.random()*2000;
+  } else {
+    if (gap < 0.03)       thinkMs = 6000 + Math.random()*4000;
+    else if (gap < 0.08)  thinkMs = 3000 + Math.random()*3000;
+    else                  thinkMs = 1500 + Math.random()*1500;
+  }
+  return {moves: topSeq ? topSeq.moves : [], thinkMs, seq: topSeq};
+}
+
+// ── Imitation learning hooks ───────────────────────────────────────────────────
+
+// Called at the start of human's rolled turn — snapshot board + what AI would do
+function _aiLearnTurnStart() {
+  if (!_isAI || _aiDifficulty !== 'medium' || currentPlayer === _aiRole) return;
+  _humanTurnStart = {
+    pts: points.map(p=>p?{...p}:null), bar:{...bar}, off:{...off}, dice:[...movesLeft]
+  };
+  _humanMoves = [];
+  // Pre-compute AI's preferred sequence for this position
+  const color = currentPlayer; // human's color
+  const seqs = _aiEnumerateSeqs(color, _humanTurnStart.pts, _humanTurnStart.bar, _humanTurnStart.off, _humanTurnStart.dice);
+  if (!seqs.length) { _humanTurnStart.aiSeq = null; return; }
+  const maxLen = Math.max(...seqs.map(s=>s.moves.length));
+  let best = seqs.filter(s=>s.moves.length===maxLen);
+  if (best.length > 10) best = best.map(s=>({s,h:_aiEvalBoard(color,s.pts,s.bar,s.off)})).sort((a,b)=>b.h-a.h).slice(0,10).map(x=>x.s);
+  let topSc=-Infinity, topSeq=null;
+  for (const s of best) { const sc=_rolloutEval(color,s.pts,s.bar,s.off,15,5); if(sc>topSc){topSc=sc;topSeq=s;} }
+  _humanTurnStart.aiSeq = topSeq;
+  _humanTurnStart.aiScore = topSc;
+}
+
+// Called when human makes each move click
+function _aiLearnRecordMove(from, to) {
+  if (_humanTurnStart) _humanMoves.push({from, to});
+}
+
+// Called at end of human's turn — compare human's play vs AI's preferred
+function _aiLearnTurnEnd() {
+  if (!_humanTurnStart || !_humanTurnStart.aiSeq || _humanMoves.length === 0) { _humanTurnStart=null; _humanMoves=[]; return; }
+  const color = _aiRole==='black'?'white':'black';
+  // Reconstruct final board from human's actual moves
+  let p=_humanTurnStart.pts.map(q=>q?{...q}:null), b={..._humanTurnStart.bar}, o={..._humanTurnStart.off};
+  let dice=[..._humanTurnStart.dice];
+  for (const mv of _humanMoves) {
+    const dieUsed = mv.to===25?(color==='white'?mv.from:25-mv.from):mv.from===0?(color==='white'?25-mv.to:mv.to):Math.abs(mv.to-mv.from);
+    [p,b,o]=_aiApplyMove(color,p,b,o,mv.from,mv.to,dieUsed);
+    const idx=dice.indexOf(dieUsed); if(idx!==-1) dice.splice(idx,1);
+  }
+  const humanScore = _rolloutEval(color, p, b, o, 15, 5);
+  const aiScore = _humanTurnStart.aiScore;
+  // Only learn when human's choice was meaningfully different AND better
+  if (humanScore - aiScore > 0.04) {
+    const hF = _aiFeatures(color, p, b, o);
+    const aF = _aiFeatures(color, _humanTurnStart.aiSeq.pts, _humanTurnStart.aiSeq.bar, _humanTurnStart.aiSeq.off);
+    const diff = {}; for(const k of Object.keys(hF)) diff[k]=hF[k]-aF[k];
+    _gameLearning.push({diff, advantage: humanScore - aiScore});
+  }
+  _humanTurnStart=null; _humanMoves=[];
+}
+
+// Called at game end — apply accumulated learning to Albert's weights
+function _aiLearnGameEnd(humanWon) {
+  if (_aiGameAborted) { _gameLearning=[]; return; }
+  if (!_isAI || _aiDifficulty!=='medium' || _gameLearning.length===0) { _gameLearning=[]; return; }
+  const lr = humanWon ? 0.06 : 0.02; // learn more when human wins
+  for (const {diff, advantage} of _gameLearning) {
+    const scale = lr * Math.min(advantage * 5, 1);
+    for (const k of Object.keys(_learnW)) {
+      if (k==='games') continue;
+      if (diff[k] !== undefined) _learnW[k] += scale * diff[k];
+    }
+  }
+  // Decay toward zero so old patterns don't dominate forever
+  for (const k of Object.keys(_learnW)) { if (k!=='games') _learnW[k] *= 0.95; }
+  _learnW.games = (_learnW.games||0) + 1;
+  _saveLearnW();
+  console.log('[Albert learn] game', _learnW.games, 'saved:', JSON.stringify(_learnW));
+  _gameLearning=[];
+}
+
+// Wait for the checker animation to fully complete before proceeding
+function _waitForAnim() {
+  return new Promise(resolve => {
+    function check() { if (!checkerAnim) resolve(); else requestAnimationFrame(check); }
+    requestAnimationFrame(check);
+  });
+}
+
+// Execute AI turn: pick best moves, apply them with smooth animation + realistic delays
+async function _aiExecuteTurn() {
+  const t0 = Date.now();
+  const {moves, thinkMs} = _aiPickBestMoves();
+  const elapsed = Date.now() - t0;
+  const remaining = Math.max(400, thinkMs - elapsed); // compute time counts as thinking
+  await new Promise(r=>setTimeout(r, remaining));
+  for (const mv of moves) {
+    if (phase==='gameover' || currentPlayer!==_aiRole) break;
+    executeMove(mv.from, mv.to);   // triggers smooth checkerAnim
+    await _waitForAnim();          // waits for anim → executeMoveFinal runs inside update()
+    if (movesLeft.length > 0 && phase!=='gameover' && currentPlayer===_aiRole) {
+      const interDelay = _aiDifficulty==='easy' ? 500+Math.random()*1000 : 1000+Math.random()*2000;
+      await new Promise(r=>setTimeout(r, interDelay));
+    }
+  }
+  _aiThinking = false;
+  _teachOfferButton(moves);
+}
+
+// ── Teaching mode (owner IP only) ─────────────────────────────────────────────
+let _teachSnapshot = null;    // board state snapshot before AI's last turn
+let _teachMoves = null;       // AI's last sequence of moves
+let _teachTimer = null;       // timeout hiding the button
+let _teachActive = false;     // currently in teach-play mode
+let _teachPlayMoves = [];     // moves player makes during teach session
+
+function _isOwner() { return _myIp === '73.158.37.40'; }
+
+// Snapshot board state (call just before AI executes its turn)
+function _teachCapturePre() {
+  if (!_isOwner() || !_isAI) return;
+  _teachSnapshot = {
+    pts: points.map(p => p ? {...p} : null),
+    bar: {...bar}, off: {...off},
+    dice: [...movesLeft], currentPlayer
+  };
+  _teachMoves = null;
+}
+
+// Called after AI finishes moving — show the button for 6 seconds
+function _teachOfferButton(moves) {
+  if (!_isOwner() || !_isAI || !_teachSnapshot) return;
+  _teachMoves = moves;
+  const btn = document.getElementById('teach-btn');
+  btn.style.display = 'block';
+  if (_teachTimer) clearTimeout(_teachTimer);
+  _teachTimer = setTimeout(() => { btn.style.display = 'none'; _teachSnapshot = null; }, 30000);
+}
+
+// Player clicked "Better move?" — restore board to pre-AI state, let player move for AI
+function _teachStart() {
+  if (!_teachSnapshot || _teachActive) return;
+  _teachActive = true;
+  document.getElementById('teach-btn').style.display = 'none';
+  if (_teachTimer) { clearTimeout(_teachTimer); _teachTimer = null; }
+
+  // Restore board to the state before AI moved
+  const snap = _teachSnapshot;
+  for (let n = 0; n <= 24; n++) points[n] = snap.pts[n] ? {...snap.pts[n]} : {color:null,count:0};
+  bar.white = snap.bar.white; bar.black = snap.bar.black;
+  off.white = snap.off.white; off.black = snap.off.black;
+  movesLeft = [...snap.dice];
+  dice = [...snap.dice];
+  currentPlayer = snap.currentPlayer; // AI's color
+  phase = 'rolled';
+  selectedPoint = null; highlights = []; combinedHighlights = [];
+  dicePhysics = [];
+  statusMsg = '💡 Show me your move!'; statusTimer = 300;
+  // isMyTurn() returns true during _teachActive — no need to change myRole
+
+  // Wait for player to finish moving (movesLeft hits 0 or endTurn fires)
+  const _origEndTurn = window._teachEndTurnHook;
+  window._teachEndTurnHook = function(humanMoves) {
+    window._teachEndTurnHook = null;
+    // Record as strong teaching signal
+    let p=snap.pts.map(q=>q?{...q}:null), b={...snap.bar}, o={...snap.off};
+    const color = snap.currentPlayer;
+    for (const mv of humanMoves) {
+      const dieUsed = mv.to===25?(color==='white'?mv.from:25-mv.from):mv.from===0?(color==='white'?25-mv.to:mv.to):Math.abs(mv.to-mv.from);
+      [p,b,o] = _aiApplyMove(color,p,b,o,mv.from,mv.to,dieUsed);
+    }
+    const humanSc = _rolloutEval(color, p, b, o, 100, 8);
+    // Also score AI's original move
+    let ap=snap.pts.map(q=>q?{...q}:null), ab={...snap.bar}, ao={...snap.off};
+    for (const mv of (_teachMoves||[])) {
+      const dieUsed = mv.to===25?(color==='white'?mv.from:25-mv.from):mv.from===0?(color==='white'?25-mv.to:mv.to):Math.abs(mv.to-mv.from);
+      [ap,ab,ao] = _aiApplyMove(color,ap,ab,ao,mv.from,mv.to,dieUsed);
+    }
+    const aiSc = _rolloutEval(color, ap, ab, ao, 100, 8);
+    const delta = humanSc - aiSc;
+    if (delta > 0) { // any improvement counts
+      const hF = _aiFeatures(color, p, b, o);
+      const aF = _aiFeatures(color, ap, ab, ao);
+      const diff = {}; for (const k of Object.keys(hF)) diff[k] = hF[k] - aF[k];
+      const advantage = Math.min(delta, 0.5);
+      for (const k of Object.keys(_learnW)) {
+        if (k==='games') continue;
+        if (diff[k] !== undefined) _learnW[k] += 0.25 * advantage * diff[k];
+      }
+      _saveLearnW();
+      statusMsg = '✓ Albert learned that! (+' + Math.round(advantage*100) + '%)'; statusTimer = 180;
+    } else {
+      statusMsg = 'Similar move — no change needed'; statusTimer = 150;
+    }
+    // Restore real game board (replay from snap, apply AI original moves)
+    for (let n = 0; n <= 24; n++) points[n] = snap.pts[n] ? {...snap.pts[n]} : {color:null,count:0};
+    bar.white = snap.bar.white; bar.black = snap.bar.black;
+    off.white = snap.off.white; off.black = snap.off.black;
+    for (const mv of (_teachMoves||[])) {
+      const dieUsed = mv.to===25?(snap.currentPlayer==='white'?mv.from:25-mv.from):mv.from===0?(snap.currentPlayer==='white'?25-mv.to:mv.to):Math.abs(mv.to-mv.from);
+      const cp2 = snap.currentPlayer;
+      const opp2 = cp2==='white'?'black':'white';
+      if (mv.from===0){bar[cp2]--;}else{points[mv.from].count--;if(points[mv.from].count===0)points[mv.from].color=null;}
+      if (mv.to===25){off[cp2]++;}else{if(points[mv.to]&&points[mv.to].color===opp2&&points[mv.to].count===1){points[mv.to]={color:null,count:0};bar[opp2]++;}if(!points[mv.to]||points[mv.to].count===0)points[mv.to]={color:cp2,count:1};else points[mv.to].count++;}
+    }
+    movesLeft=[]; dice=[];
+    currentPlayer = snap.currentPlayer==='white'?'black':'white';
+    phase='idle'; _teachActive=false; _teachSnapshot=null; _teachMoves=null;
+    _setTurnTimer(TURN_FRAMES);
+  };
+}
+
+// ── end AI engine ──────────────────────────────────────────────────────────────
 
 // Feature 6: get visual position of top checker at a point
 function topCheckerVisualPos(pt) {
@@ -4342,8 +5032,8 @@ function update(dt) {
     turnTimer = (_clockDeadlineMs - Date.now()) / (1000 / 60); // convert remaining ms → frames
     if (turnTimer <= 0 && !checkerAnim && !_timeoutPending) {
       _clearTurnTimer();
-      if (!myRole) {
-        // Singleplayer — auto-forfeit 3 pts
+      if (!myRole || _isAI) {
+        // Singleplayer or AI game — auto-forfeit 3 pts for whoever ran out of time
         _timeoutPending = true;
         const opp = currentPlayer==='white'?'black':'white';
         gameScore[opp] += 3;
@@ -4370,6 +5060,21 @@ function update(dt) {
     }
   }
 
+  // AI auto-play
+  if (_isAI && !_aiThinking && !_teachActive && phase !== 'gameover') {
+    if (_aiRole === 'black' && phase === 'opening_b') {
+      _aiThinking = true;
+      setTimeout(() => { _aiThinking = false; rollOpeningBlack(); }, 700 + Math.random()*400);
+    } else if (currentPlayer === _aiRole && phase === 'idle') {
+      _aiThinking = true;
+      setTimeout(() => { _aiThinking = false; rollDice(); }, 900 + Math.random()*600);
+    } else if (currentPlayer === _aiRole && phase === 'rolled' && !checkerAnim) {
+      _aiThinking = true;
+      _teachCapturePre();
+      _aiExecuteTurn();
+    }
+  }
+
   // Opening roll — white's die settles
   // Only White (or singleplayer) resolves and pushes; Black just animates.
   if (phase === 'opening_w_rolling' && (!myRole || myRole === 'white')) {
@@ -4381,8 +5086,8 @@ function update(dt) {
     }
   }
   // Opening roll — black's die settles, resolve winner
-  // Only Black (or singleplayer) resolves and pushes; White just animates.
-  if (phase === 'opening_b_rolling' && (!myRole || myRole === 'black')) {
+  // Only Black (or singleplayer or AI) resolves and pushes; White just animates.
+  if (phase === 'opening_b_rolling' && (!myRole || myRole === 'black' || _isAI)) {
     if (!_tieHandled && updateDicePhysics()) {
       const wd = openingDice[0], bd = openingDice[1];
       if (wd === bd) {
@@ -4418,6 +5123,7 @@ function update(dt) {
   if (phase === 'rolling') {
     if (updateDicePhysics()) {
       phase = 'rolled';
+      _aiLearnTurnStart(); // snapshot for imitation learning (no-op unless AI game + human's turn)
       if (!hasAnyLegalMove()) {
         statusMsg='No legal moves — turn passed'; statusTimer=100; skipTimer=100;
         playDisappointment();
@@ -4484,11 +5190,11 @@ function handleBoardTap(clientX, clientY) {
     if (chainTarget < 0 && n >= 0 && combinedHighlights.includes(n)) chainTarget = n;
     if (chainTarget >= 0) {
       const path = findChainPath(selectedPoint, chainTarget);
-      if (path) { executeChainMove(selectedPoint, path); return; }
+      if (path) { _aiLearnRecordMove(selectedPoint, path[path.length-1]); if(_teachActive) _teachPlayMoves.push({from:selectedPoint,to:path[path.length-1]}); executeChainMove(selectedPoint, path); return; }
     }
   }
 
-  if(selectedPoint!==null&&n>=0&&highlights.includes(n)){ executeMove(selectedPoint,n); return; }
+  if(selectedPoint!==null&&n>=0&&highlights.includes(n)){ _aiLearnRecordMove(selectedPoint,n); if(_teachActive) _teachPlayMoves.push({from:selectedPoint,to:n}); executeMove(selectedPoint,n); return; }
 
   const mustUseBar=bar[currentPlayer]>0;
   if(mustUseBar&&n!==0){ selectedPoint=null; highlights=[]; combinedHighlights=[]; return; }
