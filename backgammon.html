@@ -691,7 +691,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.28-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.29-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -1110,7 +1110,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.28-MP';
+const VERSION    = 'v8.29-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1232,12 +1232,10 @@ function _getCertainWinner() {
 }
 function _refreshEarlyWinOverlay() {
   const ov = document.getElementById('early-win-overlay');
-  // Hide immediately if not in idle phase — catches dice-throw and move phases
+  // Once overlay is showing, keep it visible until resolved — don't hide on phase change
+  if (ov.style.display !== 'none') return;
+  // Only evaluate in idle phase
   if (!myRole || phase !== 'idle' || _ewCompleted) {
-    if (ov.style.display !== 'none') {
-      ov.style.display = 'none';
-      _ewMyAgreed = false; _ewPA = null;
-    }
     _ewStableFrames = 0;
     return;
   }
