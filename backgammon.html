@@ -50,7 +50,16 @@
     canvas {
       display: none;
       touch-action: none;
-      /* width/height set dynamically by resizeCanvas() in JS */
+      transform-origin: center center;
+      transition: transform 0.2s ease;
+    }
+    :fullscreen, :-webkit-full-screen {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0a;
+      width: 100vw !important;
+      height: 100vh !important;
     }
     #subtitle {
       color: #8a7a5a;
@@ -228,7 +237,7 @@
     }
     #fullscreen-btn {
       display: none;
-      position: fixed; bottom: 80px; right: 14px; z-index: 50;
+      position: fixed; bottom: 20px; right: 14px; z-index: 50;
       background: rgba(13,17,23,0.7); border: 1px solid #c9983a;
       border-radius: 8px; width: 38px; height: 38px;
       color: #e8c060; font-size: 22px; cursor: pointer; line-height: 1;
@@ -691,7 +700,7 @@
 <div id="setup-overlay">
   <div id="setup-box">
     <h2>BACKGAMMON</h2>
-    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.36-MP</p>
+    <p id="version-label" style="font-size:11px; letter-spacing:2px; color:#7a6030; margin-bottom:4px; margin-top:-4px;">v8.47-MP</p>
     <p style="font-size:12px; letter-spacing:1px; color:#c9983a; margin-bottom:10px;">✦ Free &nbsp;|&nbsp; No Ads &nbsp;|&nbsp; No Signup &nbsp;|&nbsp; Build Your Rating</p>
     <p>ENTER YOUR NAME TO BEGIN</p>
     <div class="setup-row">
@@ -1110,7 +1119,7 @@ let _myPlayerKey = '';
 let _applyingRemote = false;
 const _myId      = Math.random().toString(36).slice(2, 10); // unique client ID
 let   _sessionId = '';   // set by White on create; Black reads from first state push
-const VERSION    = 'v8.36-MP';
+const VERSION    = 'v8.47-MP';
 
 function _fbInit() {
   if (_fbDb) return;
@@ -1172,7 +1181,15 @@ function _showRematchBtn() {
   if (!myRole && !_isAI) return; // singleplayer — no rematch btn
   const humanColor = _aiRole === 'black' ? 'white' : 'black';
   _aiLearnGameEnd(_gameWinner === humanColor);
-  setTimeout(() => { document.getElementById('rematch-overlay').style.display = 'block'; }, 2000);
+  _pendingShowRematch = true;
+  // Rematch overlay is shown after vault + rating-count anim complete (see updateBillSafeAnim)
+  // Fallback: show after 8s in case animations stall
+  setTimeout(() => {
+    if (_pendingShowRematch) {
+      document.getElementById('rematch-overlay').style.display = 'block';
+      _pendingShowRematch = false;
+    }
+  }, 8000);
 }
 
 // ── Early-win simulation ──────────────────────────────────────────────────────
@@ -1394,6 +1411,8 @@ function _saveMatchHistory(winnerColor, pts) {
 }
 
 function _updateElo(winnerColor, pts) {
+  _preEloRating = _myRating;  // save before update
+  if (_isAI && _aiRole) _preAiRating = players[_aiRole].rating || 1500;
   if (!myRole || !_isRankedGame) return;
   if (_aiGameAborted) return;
   const wRating = (players.white.rating || 1500);
@@ -1437,37 +1456,37 @@ let _aiSearchTimer = null; // fires after 10s of searching, falls back to AI opp
 // ── AI Roster (31 players, all share Albert's learned weights) ────────────────
 // windows: [[startHour, endHour], ...] in 24h. null = available all day.
 const _AI_ROSTER = [
-  { name: 'ShadowDrift',  flag: 'US', windows: [[0,3],[12,16]],    style: 'aggressive' },
-  { name: 'IronVex',      flag: 'US', windows: [[3,7],[16,20]],    style: 'defensive'  },
-  { name: 'NovaStrike',   flag: 'US', windows: [[7,12],[17,23]],   style: 'aggressive' },
-  { name: 'RiftHunter',   flag: 'US', windows: [[8,11],[20,24]],   style: 'defensive'  },
-  { name: 'BlazeVector',  flag: 'US', windows: [[2,4],[18,24]],    style: 'aggressive' },
-  { name: 'NightRook',    flag: 'US', windows: [[21,24],[0,3]],    style: 'defensive'  },
-  { name: 'TitanPulse',   flag: 'US', windows: [[10,16],[18,23.83]], style: null },
-  { name: 'GhostArc',     flag: 'US', windows: [[0,2],[16,20]],    style: null },
-  { name: 'VortexKnight', flag: 'US', windows: [[0,3],[20,23.98]], style: null },
-  { name: 'EmberWolf',    flag: 'US', windows: [[8,12],[18,22]],   style: null },
-  { name: 'LunaVibe',     flag: 'US', windows: [[7,11],[21,23.67]], style: null },
-  { name: 'NovaBloom',    flag: 'US', windows: [[1,4],[17,24]],    style: null },
-  { name: 'ShadowLily',   flag: 'US', windows: [[19,24],[0,3]],    style: null },
-  { name: 'VelvetHex',    flag: 'US', windows: [[11,16],[18,23.83]], style: null },
-  { name: 'EmberFaye',    flag: 'US', windows: [[0,2],[16,20]],    style: null },
-  { name: 'CrystalVox',  flag: 'US', windows: [[0,3],[20,23.98]], style: null },
-  { name: 'AstraNyx',     flag: 'US', windows: [[8,12],[18,22]],   style: null },
-  { name: 'MysticRaven',  flag: 'US', windows: [[7,11],[21,23.67]], style: null },
-  { name: 'EchoSiren',    flag: 'US', windows: [[1,4],[17,24]],    style: null },
-  { name: 'FrostPetal',   flag: 'US', windows: [[19,24],[0,3]],    style: null },
-  { name: 'Liam',         flag: 'US', windows: [[0,3],[12,16]],    style: 'aggressive' },
-  { name: 'Noah',         flag: 'US', windows: [[3,7],[16,20]],    style: 'defensive'  },
-  { name: 'Oliver',       flag: 'US', windows: [[7,12],[17,23]],   style: 'aggressive' },
-  { name: 'James',        flag: 'US', windows: [[8,11],[20,24]],   style: 'defensive'  },
-  { name: 'Elijah',       flag: 'US', windows: [[2,4],[18,24]],    style: 'aggressive' },
-  { name: 'Olivia',       flag: 'US', windows: [[21,24],[0,3]],    style: 'defensive'  },
-  { name: 'Emma',         flag: 'US', windows: [[10,16],[18,23.83]], style: null },
-  { name: 'Charlotte',    flag: 'US', windows: [[0,2],[16,20]],    style: null },
-  { name: 'Amelia',       flag: 'US', windows: [[0,3],[20,23.98]], style: null },
-  { name: 'Sophia',       flag: 'US', windows: [[8,12],[18,22]],   style: null },
-  { name: 'Albert',       flag: 'US', windows: null,               style: null }, // available all day
+  { name: 'ShadowDrift',  flag: 'US', windows: [[0,3],[12,16]],      style: 'aggressive', rollouts: 3200 },
+  { name: 'IronVex',      flag: 'US', windows: [[3,7],[16,20]],      style: 'defensive',  rollouts: 3200 },
+  { name: 'NovaStrike',   flag: 'US', windows: [[7,12],[17,23]],     style: 'aggressive', rollouts: 800  },
+  { name: 'RiftHunter',   flag: 'US', windows: [[8,11],[20,24]],     style: 'defensive',  rollouts: 800  },
+  { name: 'BlazeVector',  flag: 'US', windows: [[2,4],[18,24]],      style: 'aggressive', rollouts: 3200 },
+  { name: 'NightRook',    flag: 'US', windows: [[21,24],[0,3]],      style: 'defensive',  rollouts: 3200 },
+  { name: 'TitanPulse',   flag: 'US', windows: [[10,16],[18,23.83]], style: null,         rollouts: 800  },
+  { name: 'GhostArc',     flag: 'US', windows: [[0,2],[16,20]],      style: null,         rollouts: 3200 },
+  { name: 'VortexKnight', flag: 'US', windows: [[0,3],[20,23.98]],   style: null,         rollouts: 3200 },
+  { name: 'EmberWolf',    flag: 'US', windows: [[8,12],[18,22]],     style: null,         rollouts: 3200 },
+  { name: 'LunaVibe',     flag: 'US', windows: [[7,11],[21,23.67]],  style: null,         rollouts: 800  },
+  { name: 'NovaBloom',    flag: 'US', windows: [[1,4],[17,24]],      style: null,         rollouts: 3200 },
+  { name: 'ShadowLily',   flag: 'US', windows: [[19,24],[0,3]],      style: null,         rollouts: 3200 },
+  { name: 'VelvetHex',    flag: 'US', windows: [[11,16],[18,23.83]], style: null,         rollouts: 800  },
+  { name: 'EmberFaye',    flag: 'US', windows: [[0,2],[16,20]],      style: null,         rollouts: 3200 },
+  { name: 'CrystalVox',   flag: 'US', windows: [[0,3],[20,23.98]],   style: null,         rollouts: 3200 },
+  { name: 'AstraNyx',     flag: 'US', windows: [[8,12],[18,22]],     style: null,         rollouts: 800  },
+  { name: 'MysticRaven',  flag: 'US', windows: [[7,11],[21,23.67]],  style: null,         rollouts: 800  },
+  { name: 'EchoSiren',    flag: 'US', windows: [[1,4],[17,24]],      style: null,         rollouts: 3200 },
+  { name: 'FrostPetal',   flag: 'US', windows: [[19,24],[0,3]],      style: null,         rollouts: 3200 },
+  { name: 'Liam',         flag: 'US', windows: [[0,3],[12,16]],      style: 'aggressive', rollouts: 3200 },
+  { name: 'Noah',         flag: 'US', windows: [[3,7],[16,20]],      style: 'defensive',  rollouts: 800  },
+  { name: 'Oliver',       flag: 'US', windows: [[7,12],[17,23]],     style: 'aggressive', rollouts: 800  },
+  { name: 'James',        flag: 'US', windows: [[8,11],[20,24]],     style: 'defensive',  rollouts: 800  },
+  { name: 'Elijah',       flag: 'US', windows: [[2,4],[18,24]],      style: 'aggressive', rollouts: 3200 },
+  { name: 'Olivia',       flag: 'US', windows: [[21,24],[0,3]],      style: 'defensive',  rollouts: 3200 },
+  { name: 'Emma',         flag: 'US', windows: [[10,16],[18,23.83]], style: null,         rollouts: 800  },
+  { name: 'Charlotte',    flag: 'US', windows: [[0,2],[16,20]],      style: null,         rollouts: 800  },
+  { name: 'Amelia',       flag: 'US', windows: [[0,3],[20,23.98]],   style: null,         rollouts: 3200 },
+  { name: 'Sophia',       flag: 'US', windows: [[8,12],[18,22]],     style: null,         rollouts: 3200 },
+  { name: 'Albert',       flag: 'US', windows: null,                 style: null,         rollouts: 3200 }, // available all day
 ];
 
 function _aiIsActive(player) {
@@ -1859,16 +1878,35 @@ function _launchGame() {
   _leftBase = document.getElementById('left-base').checked;
   document.getElementById('setup-overlay').style.display = 'none';
   document.getElementById('c').style.display = 'block';
-  // Show fullscreen button on touch devices (hides mobile URL bar on tap)
-  if (('ontouchstart' in window) || navigator.maxTouchPoints > 0) {
-    const _fsBtn = document.getElementById('fullscreen-btn');
-    _fsBtn.style.display = 'block';
-    _fsBtn.onclick = function() {
-      const el = document.documentElement;
+  // Show fullscreen button on all devices when game starts
+  const _fsBtn = document.getElementById('fullscreen-btn');
+  _fsBtn.style.display = 'block';
+  _fsBtn.title = 'Fullscreen (Esc to exit)';
+  _fsBtn.onclick = function() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
       try { (el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen).call(el); }
       catch(e) {}
-    };
+    } else {
+      try { (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen).call(document); }
+      catch(e) {}
+    }
+  };
+  // Scale canvas to fill screen in fullscreen mode
+  function _updateFsBtn() {
+    const inFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    _fsBtn.textContent = inFs ? '✕' : '⛶';
+    if (inFs) {
+      const scaleX = window.screen.width  / CW;
+      const scaleY = window.screen.height / CH;
+      const scale  = Math.min(scaleX, scaleY) * 0.97; // tiny margin
+      canvas.style.transform = 'scale(' + scale + ')';
+    } else {
+      canvas.style.transform = '';
+    }
   }
+  document.addEventListener('fullscreenchange', _updateFsBtn);
+  document.addEventListener('webkitfullscreenchange', _updateFsBtn);
   resizeCanvas();
   document.getElementById('subtitle').textContent =
     players.white.name + ' (White)  vs  ' + players.black.name + ' (Black)';
@@ -2453,6 +2491,11 @@ let _tieHandled = false; // guard: prevents 90 duplicate setTimeout calls while 
 // Fireworks
 let fireworks = [], fireworkBurstQueue = [];
 let billSafeAnim = null; // {fromX,fromY,safeX,safeY,t,duration,done}
+let _preEloRating = null;      // human's rating saved before _updateElo runs
+let _preAiRating  = null;      // AI's rating saved before _updateElo runs
+let _ratingCountAnim  = null;  // {from,to,t,displayVal,done,color} — winner strip anim
+let _ratingCountAnim2 = null;  // loser strip anim — starts after winner finishes
+let _pendingShowRematch = false;
 // Chess clock (frames at ~60fps); real-time deadline tracked separately for background tabs
 let turnTimer = -1;
 let _clockDeadlineMs = -1; // Date.now() of expiry; -1 = inactive
@@ -3022,6 +3065,7 @@ function initBoard() {
   _teachSnapshot=null; _teachMoves=null; _teachActive=false; _teachPlayMoves=[];
   document.getElementById('teach-btn').style.display='none';
   turnTimer=-1; _clockDeadlineMs=-1; fireworks=[]; fireworkBurstQueue=[]; billSafeAnim=null;
+  _preEloRating=null; _preAiRating=null; _ratingCountAnim=null; _ratingCountAnim2=null; _pendingShowRematch=false;
 }
 
 // ── Legal moves ───────────────────────────────────────────────
@@ -3435,7 +3479,8 @@ function _aiPickBestMoves() {
     if (_aiDifficulty==='easy') {
       sc = _aiEvalBoard(color, s.pts, s.bar, s.off) + (Math.random()-0.5)*50;
     } else {
-      sc = _rolloutEval(color, s.pts, s.bar, s.off, 50, 10); // 50 rollouts, 10 ply
+      const _N = (_currentAIPlayer && _currentAIPlayer.rollouts) || 800;
+      sc = _rolloutEval(color, s.pts, s.bar, s.off, _N, 12);
     }
     if (sc > topScore) { secondScore=topScore; topScore=sc; topSeq=s; }
     else if (sc > secondScore) secondScore=sc;
@@ -3446,9 +3491,19 @@ function _aiPickBestMoves() {
   if (_aiDifficulty==='easy') {
     thinkMs = 1500 + Math.random()*2000;
   } else {
-    if (gap < 0.03)       thinkMs = 6000 + Math.random()*4000;
-    else if (gap < 0.08)  thinkMs = 3000 + Math.random()*3000;
-    else                  thinkMs = 1500 + Math.random()*1500;
+    if (gap < 0.03) {
+      // Hard: 60% → 6000–7000, 30% → 7000–8000, 10% → 8000–10000
+      const r = Math.random();
+      if (r < 0.60)      thinkMs = 6000 + Math.random()*1000;
+      else if (r < 0.90) thinkMs = 7000 + Math.random()*1000;
+      else               thinkMs = 8000 + Math.random()*2000;
+    } else if (gap < 0.08) {
+      // Medium: 60% → 3000–4000, 30% → 4000–5000, 10% → 5000–6000
+      const r = Math.random();
+      if (r < 0.60)      thinkMs = 3000 + Math.random()*1000;
+      else if (r < 0.90) thinkMs = 4000 + Math.random()*1000;
+      else               thinkMs = 5000 + Math.random()*1000;
+    } else               thinkMs = 1500 + Math.random()*1500;
   }
   return {moves: topSeq ? topSeq.moves : [], thinkMs, seq: topSeq};
 }
@@ -3622,7 +3677,19 @@ async function _aiExecuteTurn() {
     executeMove(mv.from, mv.to);   // triggers smooth checkerAnim
     await _waitForAnim();          // waits for anim → executeMoveFinal runs inside update()
     if (movesLeft.length > 0 && phase!=='gameover' && currentPlayer===_aiRole) {
-      const interDelay = _aiDifficulty==='easy' ? 500+Math.random()*1000 : 1000+Math.random()*2000;
+      let interDelay;
+      const _ir = Math.random();
+      if (_aiDifficulty === 'easy') {
+        // Easy: 60% → 500–700ms, 30% → 700–900ms, 10% → 900–1500ms
+        if (_ir < 0.60)      interDelay = 500  + Math.random()*200;
+        else if (_ir < 0.90) interDelay = 700  + Math.random()*200;
+        else                 interDelay = 900  + Math.random()*600;
+      } else {
+        // Medium: 60% → 1000–1400ms, 30% → 1400–2000ms, 10% → 2000–3000ms
+        if (_ir < 0.60)      interDelay = 1000 + Math.random()*400;
+        else if (_ir < 0.90) interDelay = 1400 + Math.random()*600;
+        else                 interDelay = 2000 + Math.random()*1000;
+      }
       await new Promise(r=>setTimeout(r, interDelay));
     }
   }
@@ -4457,12 +4524,41 @@ function updateBillSafeAnim(dt) {
   if (!billSafeAnim._closeSoundPlayed && billSafeAnim.t >= SAFE_OPEN_DUR + SAFE_FLY_DUR && prevT < SAFE_OPEN_DUR + SAFE_FLY_DUR) {
     billSafeAnim._closeSoundPlayed = true;
     playSafeDoorClose();
+    // Start winner's rating-count animation as safe begins to close (bill just landed)
+    if (_pendingShowRematch && _isRankedGame && myRole) {
+      // Winner strip first
+      const winColor = _gameWinner;
+      const loseColor = winColor === 'white' ? 'black' : 'white';
+      const winFrom = (myRole === winColor) ? _preEloRating : (_preAiRating || players[winColor].rating);
+      const winTo   = (myRole === winColor) ? _myRating     : players[winColor].rating;
+      if (winFrom !== null && winFrom !== winTo) {
+        _ratingCountAnim = { from: winFrom, to: winTo, t: 0, displayVal: winFrom, done: false, color: winColor };
+      }
+      // Store loser info for after winner finishes
+      _ratingCountAnim2 = {
+        from: (myRole === loseColor) ? _preEloRating : (_preAiRating || players[loseColor].rating),
+        to:   (myRole === loseColor) ? _myRating     : players[loseColor].rating,
+        t: 0, displayVal: null, done: false, color: loseColor, pending: true
+      };
+      if (_ratingCountAnim2.from === null || _ratingCountAnim2.from === _ratingCountAnim2.to) {
+        _ratingCountAnim2 = null; // no change, skip
+      } else {
+        _ratingCountAnim2.displayVal = _ratingCountAnim2.from;
+      }
+    }
   }
   if (billSafeAnim.t >= billSafeAnim.duration) {
     billSafeAnim.done = true;
     // Hide vault overlay after animation completes
     const overlay = document.getElementById('vault-overlay');
     if (overlay) overlay.style.display = 'none';
+    // Show rematch now if no rating anims at all (non-ranked or no change)
+    if (_pendingShowRematch && !_ratingCountAnim && !_ratingCountAnim2) {
+      setTimeout(() => {
+        document.getElementById('rematch-overlay').style.display = 'block';
+        _pendingShowRematch = false;
+      }, 400);
+    }
   }
 }
 
@@ -4488,6 +4584,46 @@ function drawBillSafeAnim() {
       ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 12;
       ctx.drawImage(_victoryImg, bx, by, bw, bh);
       ctx.restore();
+    }
+  }
+}
+
+// ── Rating count animation (post-vault) ──────────────────────
+const _RA_FLASH = 2.0, _RA_COUNT = 3.0, _RA_HOLD = 1.0;
+const _RA_TOTAL = _RA_FLASH + _RA_COUNT + _RA_HOLD;
+
+function _tickRatingAnim(a, dt) {
+  a.t += dt / 60;
+  if (a.t >= _RA_TOTAL) { a.displayVal = a.to; a.done = true; return; }
+  if (a.t < _RA_FLASH) {
+    a.displayVal = a.from;
+  } else if (a.t < _RA_FLASH + _RA_COUNT) {
+    const p = (a.t - _RA_FLASH) / _RA_COUNT;
+    const ease = 1 - Math.pow(1 - p, 2);
+    a.displayVal = Math.round(a.from + (a.to - a.from) * ease);
+  } else {
+    a.displayVal = a.to;
+  }
+}
+
+function _updateRatingCountAnim(dt) {
+  if (_ratingCountAnim && !_ratingCountAnim.done) {
+    _tickRatingAnim(_ratingCountAnim, dt);
+    // Winner finished — activate loser anim
+    if (_ratingCountAnim.done && _ratingCountAnim2 && _ratingCountAnim2.pending) {
+      _ratingCountAnim2.pending = false;
+      _ratingCountAnim2.t = 0;
+    }
+    return;
+  }
+  if (_ratingCountAnim2 && !_ratingCountAnim2.done && !_ratingCountAnim2.pending) {
+    _tickRatingAnim(_ratingCountAnim2, dt);
+    // Loser finished — show rematch
+    if (_ratingCountAnim2.done && _pendingShowRematch) {
+      setTimeout(() => {
+        document.getElementById('rematch-overlay').style.display = 'block';
+        _pendingShowRematch = false;
+      }, 300);
     }
   }
 }
@@ -5021,7 +5157,10 @@ function drawBoard() {
     ctx.font='9px Courier New'; ctx.fillStyle='rgba(180,140,60,0.6)';
     ctx.fillText(VERSION, 0, -5);
     ctx.font='7px Courier New'; ctx.fillStyle='rgba(168,200,120,0.7)';
-    ctx.fillText(_levelLabel(_myRating) + '  ' + _myRating, 0, +5);
+    const _myAnim = (_ratingCountAnim && _ratingCountAnim.color === myRole) ? _ratingCountAnim
+                  : (_ratingCountAnim2 && _ratingCountAnim2.color === myRole && !_ratingCountAnim2.pending) ? _ratingCountAnim2 : null;
+    const _dispR = _myAnim ? _myAnim.displayVal : _myRating;
+    ctx.fillText(_levelLabel(_dispR) + '  ' + _dispR, 0, +5);
   } else {
     ctx.font='9px Courier New'; ctx.fillStyle='rgba(180,140,60,0.6)';
     ctx.fillText(VERSION, 0, 0);
@@ -5041,12 +5180,32 @@ function drawBoard() {
   ctx.fillText(players.black.name.substring(0,12), _brdNameX, BY + BORDER/2);
   // Black rating — rotated in right border, upper quarter
   if (myRole && players.black.rating) {
+    const _ra = (_ratingCountAnim && _ratingCountAnim.color === 'black') ? _ratingCountAnim
+              : (_ratingCountAnim2 && _ratingCountAnim2.color === 'black' && !_ratingCountAnim2.pending) ? _ratingCountAnim2
+              : null;
+    let _stripVal = _ra ? _ra.displayVal : players.black.rating;
+    let _stripFont = '11px Courier New', _stripAlpha = 0.85;
+    if (_ra && !_ra.done) {
+      if (_ra.t < _RA_FLASH) {
+        const pulse = Math.abs(Math.cos(Math.PI * _ra.t / (_RA_FLASH / 2)));
+        _stripFont = 'bold 36px Courier New'; _stripAlpha = 0.4 + 0.6 * pulse;
+      } else if (_ra.t < _RA_FLASH + _RA_COUNT) {
+        _stripFont = 'bold 36px Courier New'; _stripAlpha = 1.0;
+      } else {
+        const sp = (_ra.t - _RA_FLASH - _RA_COUNT) / _RA_HOLD;
+        const sz = Math.round(36 - (36 - 11) * Math.min(1, sp));
+        _stripFont = 'bold ' + sz + 'px Courier New'; _stripAlpha = 1.0;
+      }
+    } else if (_ra && _ra.done) {
+      _stripFont = 'bold 11px Courier New'; _stripAlpha = 1.0;
+    }
     ctx.save();
     ctx.translate(_brdRatingCX, BY + BORDER + 150);
     ctx.rotate(Math.PI/2);
-    ctx.font='11px Courier New'; ctx.fillStyle='rgba(168,170,232,0.85)';
+    ctx.font = _stripFont;
+    ctx.fillStyle = 'rgba(168,170,232,' + _stripAlpha + ')';
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(_levelLabel(players.black.rating) + '  ' + players.black.rating, 0, 0);
+    ctx.fillText(_levelLabel(_stripVal) + '  ' + _stripVal, 0, 0);
     ctx.restore();
   }
   // White — bottom border
@@ -5055,12 +5214,32 @@ function drawBoard() {
   ctx.fillText(players.white.name.substring(0,12), _brdNameX, IY + IH + BORDER/2);
   // White rating — rotated in right border, lower quarter
   if (myRole && players.white.rating) {
+    const _ra = (_ratingCountAnim && _ratingCountAnim.color === 'white') ? _ratingCountAnim
+              : (_ratingCountAnim2 && _ratingCountAnim2.color === 'white' && !_ratingCountAnim2.pending) ? _ratingCountAnim2
+              : null;
+    let _stripVal = _ra ? _ra.displayVal : players.white.rating;
+    let _stripFont = '11px Courier New', _stripAlpha = 0.85;
+    if (_ra && !_ra.done) {
+      if (_ra.t < _RA_FLASH) {
+        const pulse = Math.abs(Math.cos(Math.PI * _ra.t / (_RA_FLASH / 2)));
+        _stripFont = 'bold 36px Courier New'; _stripAlpha = 0.4 + 0.6 * pulse;
+      } else if (_ra.t < _RA_FLASH + _RA_COUNT) {
+        _stripFont = 'bold 36px Courier New'; _stripAlpha = 1.0;
+      } else {
+        const sp = (_ra.t - _RA_FLASH - _RA_COUNT) / _RA_HOLD;
+        const sz = Math.round(36 - (36 - 11) * Math.min(1, sp));
+        _stripFont = 'bold ' + sz + 'px Courier New'; _stripAlpha = 1.0;
+      }
+    } else if (_ra && _ra.done) {
+      _stripFont = 'bold 11px Courier New'; _stripAlpha = 1.0;
+    }
     ctx.save();
     ctx.translate(_brdRatingCX, IY + IH - 149);
     ctx.rotate(Math.PI/2);
-    ctx.font='11px Courier New'; ctx.fillStyle='rgba(208,184,128,0.85)';
+    ctx.font = _stripFont;
+    ctx.fillStyle = 'rgba(208,184,128,' + _stripAlpha + ')';
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(_levelLabel(players.white.rating) + '  ' + players.white.rating, 0, 0);
+    ctx.fillText(_levelLabel(_stripVal) + '  ' + _stripVal, 0, 0);
     ctx.restore();
   }
   ctx.textBaseline='alphabetic';
@@ -5075,6 +5254,7 @@ function update(dt) {
   // Always update visual effects (even during auto-skip pauses)
   if (fireworks.length > 0 || fireworkBurstQueue.length > 0) updateFireworks();
   if (billSafeAnim && !billSafeAnim.done) updateBillSafeAnim(dt);
+  if (_ratingCountAnim || _ratingCountAnim2) _updateRatingCountAnim(dt);
   if(skipTimer>0){ skipTimer -= dt; if(skipTimer<=0){ skipTimer=0; endTurn(); } return; }
 
   // Blot animation — hit checker sliding to bar
