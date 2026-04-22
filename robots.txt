@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://backgammoncalifornia.org/sitemap.xml
